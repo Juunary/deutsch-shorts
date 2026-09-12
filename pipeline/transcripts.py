@@ -28,6 +28,7 @@ MAX_GAP_S = 0.7
 MAX_SPAN_S = 7.0
 MIN_SEGMENT_MS = 500
 MAX_ATTEMPTS = 5
+NO_GERMAN_CHANNEL_THRESHOLD = 5   # channels with >= N videos lacking a German track and none with one are skipped
 LEVEL_ORDER_SQL = "CASE c.level_hint WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 ELSE 4 END"
 MT_SOURCES = ("deepl", "gtx", "yt_mt")
 
@@ -217,9 +218,11 @@ def candidates(conn: sqlite3.Connection, limit: int) -> list[str]:
         "WHERE c.enabled=1 AND v.embeddable=1 AND (v.transcript_status='pending' OR "
         "(v.transcript_status='failed' AND v.transcript_attempts < ? AND "
         "(v.next_transcript_try_at IS NULL OR v.next_transcript_try_at <= ?))) "
+        "AND v.channel_id NOT IN (SELECT channel_id FROM videos GROUP BY channel_id "
+        "HAVING SUM(transcript_status='none') >= ? AND SUM(transcript_status='ok') = 0) "
         f"ORDER BY {LEVEL_ORDER_SQL}, v.published_at DESC LIMIT ?"
     )
-    return [r[0] for r in conn.execute(sql, (MAX_ATTEMPTS, now, limit))]
+    return [r[0] for r in conn.execute(sql, (MAX_ATTEMPTS, now, NO_GERMAN_CHANNEL_THRESHOLD, limit))]
 
 
 def run_transcripts(conn: sqlite3.Connection, limit: int = 30, video_id: str | None = None,

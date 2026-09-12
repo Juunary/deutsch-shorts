@@ -14,8 +14,8 @@ $tasks = @(
     @{ Name = 'DeutschShorts-Server';      Script = 'run-server.ps1';   Args = '';      Trigger = (New-ScheduledTaskTrigger -AtStartup) },
     @{ Name = 'DeutschShorts-LLM';         Script = 'llama-server.ps1'; Args = '';      Trigger = (New-ScheduledTaskTrigger -AtStartup) },
     @{ Name = 'DeutschShorts-Pipeline';    Script = 'run-pipeline.ps1'; Args = '-Stage all -ExtraArgs "--limit 8"'; Trigger = (New-ScheduledTaskTrigger -Daily -At 4:30AM) },
-    # YouTube blocks bursts of caption requests from one IP: fetch a few transcripts every hour instead of many at night
-    @{ Name = 'DeutschShorts-Transcripts'; Script = 'run-pipeline.ps1'; Args = '-Stage transcripts -ExtraArgs "--limit 8"'; Trigger = $hourly }
+    # The lab server collects transcripts and runs the teacher model; pull its export every hour (scp over ssh alias Mustree)
+    @{ Name = 'DeutschShorts-Pull';        Script = 'run-pipeline.ps1'; Args = '-Stage pull'; Trigger = $hourly }
 )
 
 foreach ($t in $tasks) {

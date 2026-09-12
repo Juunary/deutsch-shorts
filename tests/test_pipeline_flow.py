@@ -219,3 +219,17 @@ def test_local_backend_openai_and_ollama():
     with pytest.raises(LB.BackendError):
         LB.LocalBackend(url="http://x", transport=httpx.MockTransport(broken)).enrich({"segments": []}, "sys")
     assert LB.price("claude-opus-5", 1_000_000, 0) == 5.0 and LB.price("unknown", 10, 10) == 0.0
+
+
+def test_candidates_skip_channels_without_german(seeded_db):
+    with tx(seeded_db):
+        seeded_db.execute("UPDATE videos SET transcript_status='pending'")
+        seeded_db.execute("INSERT INTO channels(id, handle, shorts_playlist_id, level_hint) VALUES(?,?,?,?)", ("UC" + "e" * 22, "EnglishTeacher", "UUSH" + "e" * 22, "A1"))
+        for i in range(5):
+            seeded_db.execute("INSERT INTO videos(id, channel_id, transcript_status) VALUES(?,?,'none')", (f"en{i}", "UC" + "e" * 22))
+        seeded_db.execute("INSERT INTO videos(id, channel_id, transcript_status) VALUES(?,?,'pending')", ("en_new", "UC" + "e" * 22))
+    ids = T.candidates(seeded_db, 50)
+    assert "en_new" not in ids and set(VIDEO_IDS) <= set(ids)
+    with tx(seeded_db):  # one German success re-enables the channel
+        seeded_db.execute("UPDATE videos SET transcript_status='ok' WHERE id='en0'")
+    assert "en_new" in T.candidates(seeded_db, 50)
