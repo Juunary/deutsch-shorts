@@ -23,6 +23,14 @@ RANK_BANDS = [(1000, "A1"), (2500, "A2"), (5000, "B1"), (10000, "B2")]
 LEVEL_PRIORITY = {"A1": 0, "A2": 1, "B1": 2, "B2": 3, "C1": 4}
 
 _TOKEN_RE = re.compile(r"[a-zäöüß]+(?:['-][a-zäöüß]+)*")
+# Tiny stopword sets to catch "German" caption tracks that are mostly English (learner channels teaching in English).
+DE_STOP = {"der", "die", "das", "und", "ist", "nicht", "ich", "du", "wir", "ihr", "sie", "ein", "eine", "einen", "zu", "mit", "auf",
+           "für", "was", "wie", "ja", "nein", "auch", "aber", "oder", "wenn", "dann", "noch", "schon", "hier", "heute", "sehr",
+           "haben", "habe", "hat", "sind", "bin", "bist", "kann", "muss", "mal", "man", "es", "im", "am", "vom", "zum", "zur", "über"}
+EN_STOP = {"the", "and", "is", "you", "this", "that", "what", "how", "in", "of", "to", "it", "we", "are", "for", "with", "your",
+           "have", "has", "not", "but", "they", "can", "will", "just", "like", "so", "when", "there", "here", "about", "very",
+           "let's", "means", "say", "german", "english", "word", "words", "i'm", "it's", "don't", "do", "does", "my", "our"}
+MIN_GERMAN_RATIO = 0.6
 
 
 @lru_cache(maxsize=1)
@@ -81,6 +89,19 @@ def words_per_second(segments: list[dict]) -> float:
     return words / seconds if seconds > 0 else 0.0
 
 
+def german_ratio(tokens: Iterable[str]) -> float | None:
+    """Share of German among the German+English stopwords found; None when too few stopwords to judge."""
+    de = en = 0
+    for t in tokens:
+        if t in DE_STOP:
+            de += 1
+        elif t in EN_STOP:
+            en += 1
+    if de + en < 8:
+        return None
+    return de / (de + en)
+
+
 def estimate_cefr(cov: float, wps: float) -> str:
     if cov >= 0.85 and wps <= 2.4:
         return "A1"
@@ -100,7 +121,7 @@ def run_heuristics(conn: sqlite3.Connection, video_id: str | None = None, force:
         if not force:
             sql += " WHERE v.a1a2_coverage IS NULL"
         vids = [r[0] for r in conn.execute(sql)]
-    summary = {"computed": 0, "channel_fallback": 0}
+    summary = {"computed": 0, "channel_fallback": 0, "mixed": 0}
     for vid in vids:
         segs = [dict(r) for r in conn.execute(
             "SELECT start_ms, end_ms, text_de FROM segments WHERE video_id=? ORDER BY idx", (vid,))]
@@ -111,6 +132,13 @@ def run_heuristics(conn: sqlite3.Connection, video_id: str | None = None, force:
             continue
         source, hint = row[0], row[1]
         tokens = [t for s in segs for t in tokenize_de(s["text_de"])]
+        ratio = german_ratio(tokens)
+        if ratio is not None and ratio < MIN_GERMAN_RATIO:
+            with tx(conn):  # mostly English speech with a "German" caption track: keep out of the feed and the training data
+                conn.execute("UPDATE videos SET transcript_status='mixed' WHERE id=? AND transcript_status='ok'", (vid,))
+            summary["mixed"] += 1
+            log.info("heuristics %s: mostly non-German transcript (de ratio %.2f) -> mixed", vid, ratio)
+            continue
         with tx(conn):
             if tokens:
                 cov = coverage(tokens)

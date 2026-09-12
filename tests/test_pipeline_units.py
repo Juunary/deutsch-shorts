@@ -134,3 +134,17 @@ def test_find_pair_windows():
     assert find_pair(de, en) == "closest"
     assert find_pair({"id": "x", "duration_s": None}, en) is None
     assert find_pair(de, en[:2]) is None
+
+
+def test_german_ratio_and_mixed_status(seeded_db):
+    from app.db import tx
+    de = H.tokenize_de("Ich habe heute keine Zeit und das ist nicht so schlimm, aber wir sehen uns morgen wieder")
+    en = H.tokenize_de("What is this called in German? This is the word and you can say it like that, it's easy")
+    assert H.german_ratio(de) > 0.8 and H.german_ratio(en) < 0.2 and H.german_ratio(["kurz"]) is None
+    with tx(seeded_db):
+        seeded_db.execute("UPDATE segments SET text_de=? WHERE video_id='vid00000002' AND idx=0",
+                          ("what is this called in german this is the word and you can say it like that and it is easy",))
+    s = H.run_heuristics(seeded_db, force=True)
+    assert s["mixed"] == 1
+    assert seeded_db.execute("SELECT transcript_status FROM videos WHERE id='vid00000002'").fetchone()[0] == "mixed"
+    assert seeded_db.execute("SELECT transcript_status FROM videos WHERE id='vid00000001'").fetchone()[0] == "ok"

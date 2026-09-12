@@ -219,7 +219,7 @@ def candidates(conn: sqlite3.Connection, limit: int) -> list[str]:
         "(v.transcript_status='failed' AND v.transcript_attempts < ? AND "
         "(v.next_transcript_try_at IS NULL OR v.next_transcript_try_at <= ?))) "
         "AND v.channel_id NOT IN (SELECT channel_id FROM videos GROUP BY channel_id "
-        "HAVING SUM(transcript_status='none') >= ? AND SUM(transcript_status='ok') = 0) "
+        "HAVING SUM(transcript_status IN ('none','mixed')) >= ? AND SUM(transcript_status='ok') = 0) "
         f"ORDER BY {LEVEL_ORDER_SQL}, v.published_at DESC LIMIT ?"
     )
     return [r[0] for r in conn.execute(sql, (MAX_ATTEMPTS, now, NO_GERMAN_CHANNEL_THRESHOLD, limit))]
