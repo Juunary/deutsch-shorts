@@ -119,7 +119,8 @@ def stage_heuristics(conn: sqlite3.Connection, args: argparse.Namespace) -> dict
 
 def stage_enrich(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
     from .enrich import run_enrich
-    return run_enrich(conn, limit=args.limit, video_id=args.video, retry_failed=args.retry_failed, force=args.force)
+    return run_enrich(conn, limit=args.limit, video_id=args.video, retry_failed=args.retry_failed, force=args.force,
+                      workers=args.workers)
 
 
 def stage_pair(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
@@ -191,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="recompute even if already done")
     p.add_argument("--no-translate", action="store_true", help="transcripts: skip machine translation")
     p.add_argument("--dry-run", action="store_true", help="print the plan and exit")
+    p.add_argument("--workers", type=int, default=None, help="enrich: parallel requests (default ENRICH_WORKERS)")
     p.add_argument("--out", default=None, help="export: output path (default data/content.jsonl)")
     p.add_argument("--file", default=None, help="import: input path (default data/content.jsonl)")
     p.add_argument("--remote", default="Mustree", help="pull: ssh host alias")

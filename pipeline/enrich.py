@@ -124,8 +124,12 @@ def enrich_candidates(conn: sqlite3.Connection, limit: int, retry_failed: bool =
     return [r[0] for r in conn.execute(sql, (limit,))]
 
 
+def _db_path(conn: sqlite3.Connection) -> str:
+    return conn.execute("PRAGMA database_list").fetchone()[2]
+
+
 def run_enrich(conn: sqlite3.Connection, limit: int | None = None, video_id: str | None = None,
-               retry_failed: bool = False, force: bool = False, backend=None) -> dict[str, Any]:
+               retry_failed: bool = False, force: bool = False, backend=None, workers: int | None = None) -> dict[str, Any]:
     summary: dict[str, Any] = {"ok": 0, "fallback": 0, "failed": 0, "skipped": 0, "llm_calls": 0, "cost_usd": 0.0}
     backend = backend or get_backend()
     if backend.name == "none":
@@ -138,12 +142,36 @@ def run_enrich(conn: sqlite3.Connection, limit: int | None = None, video_id: str
     cap = settings.llm_daily_cap
     n = min(limit or cap, cap)
     ids = [video_id] if video_id else enrich_candidates(conn, n, retry_failed)
-    for vid in ids:
-        status = enrich_one(conn, vid, backend=backend, force=force)
+    workers = max(1, int(workers or settings.enrich_workers or 1))
+
+    def tally(vid: str, status: str) -> None:
         summary[status] = summary.get(status, 0) + 1
         if status != "skipped":
             summary["llm_calls"] += 1
             r = conn.execute("SELECT cost_usd FROM enrichments WHERE video_id=?", (vid,)).fetchone()
             summary["cost_usd"] += float(r[0] or 0) if r else 0.0
         log.info("enrich %s: %s", vid, status)
+
+    if workers == 1 or len(ids) <= 1:
+        for vid in ids:
+            tally(vid, enrich_one(conn, vid, backend=backend, force=force))
+        return summary
+
+    from concurrent.futures import ThreadPoolExecutor
+    from app.db import connect
+    db_path = _db_path(conn)
+
+    def work(vid: str) -> tuple[str, str]:  # one SQLite connection per thread
+        c = connect(db_path)
+        try:
+            return vid, enrich_one(c, vid, backend=backend, force=force)
+        except Exception as e:  # noqa: BLE001
+            log.exception("enrich %s crashed", vid)
+            return vid, "failed"
+        finally:
+            c.close()
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for vid, status in ex.map(work, ids):
+            tally(vid, status)
     return summary

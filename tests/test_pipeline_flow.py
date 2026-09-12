@@ -183,6 +183,10 @@ def test_enrich_one_paths(seeded_db):
     assert E.enrich_one(seeded_db, "missing", backend=ok) == "skipped"
     s = E.run_enrich(seeded_db, backend=FakeBackend(["good"]), retry_failed=True, limit=5)
     assert s["ok"] == 1 and s["llm_calls"] == 1
+    # parallel workers use one connection per thread and produce the same result
+    s = E.run_enrich(seeded_db, backend=FakeBackend(["good"]), retry_failed=True, limit=5, force=True, workers=3)
+    assert s["ok"] == 2 and s["llm_calls"] == 2
+    assert seeded_db.execute("SELECT count(*) FROM enrichments WHERE status='ok'").fetchone()[0] == 2
 
 
 def test_local_backend_openai_and_ollama():
