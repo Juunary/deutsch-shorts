@@ -21,7 +21,7 @@ log = logging.getLogger("pipeline")
 
 CONTENT_TABLES = ["channels", "videos", "transcript_raw", "segments", "translations", "glosses", "enrichments"]
 DEFAULT_EXPORT = ROOT / "data" / "content.jsonl"
-STATUS_RANK = {"ok": 3, "fallback": 2, "failed": 1, "pending": 0, "none": 1, "disabled": 1, "skipped": 0}
+STATUS_RANK = {"ok": 3, "fallback": 2, "failed": 1, "pending": 0, "none": 1, "disabled": 1, "skipped": 0, "mixed": 1}
 
 
 def export_content(conn: sqlite3.Connection, path: Path = DEFAULT_EXPORT) -> dict[str, int]:
@@ -63,6 +63,8 @@ def _upsert_video(conn: sqlite3.Connection, r: dict[str, Any]) -> None:
                      tuple(r.get(c) if c not in ("topics_json",) else (r.get(c) or "[]") for c in cols))
         return
     t_status = r.get("transcript_status") if STATUS_RANK.get(r.get("transcript_status"), 0) >= STATUS_RANK.get(existing[0], 0) else existing[0]
+    if r.get("transcript_status") == "mixed":   # heuristics verdict (mostly English speech) always wins over 'ok'
+        t_status = "mixed"
     e_status = r.get("enrich_status") if STATUS_RANK.get(r.get("enrich_status"), 0) >= STATUS_RANK.get(existing[1], 0) else existing[1]
     take_cefr = existing[2] != "user" and (r.get("cefr_source") == "model" or existing[2] in (None, "heuristic", "channel"))
     conn.execute(

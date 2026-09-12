@@ -44,3 +44,16 @@ def test_export_import_roundtrip_keeps_user_state(seeded_db, tmp_path):
     # idempotent
     c2 = import_content(target, path)
     assert c2 == c and target.execute("SELECT count(*) FROM segments").fetchone()[0] == 6
+
+
+def test_import_propagates_mixed_status(seeded_db, tmp_path):
+    with tx(seeded_db):
+        seeded_db.execute("UPDATE videos SET transcript_status='mixed' WHERE id=?", (VIDEO_IDS[1],))
+    path = tmp_path / "c.jsonl"
+    export_content(seeded_db, path)
+    target = open_db(tmp_path / "t.db")
+    with tx(target):
+        target.execute("INSERT INTO channels(id, handle, shorts_playlist_id) VALUES(?,?,?)", (CHANNEL_ID, "EasyGerman", "UUSHtest000000000000000000"))
+        target.execute("INSERT INTO videos(id, channel_id, transcript_status) VALUES(?,?,'ok')", (VIDEO_IDS[1], CHANNEL_ID))
+    import_content(target, path)
+    assert target.execute("SELECT transcript_status FROM videos WHERE id=?", (VIDEO_IDS[1],)).fetchone()[0] == "mixed"
