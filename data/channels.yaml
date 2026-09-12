@@ -1,0 +1,121 @@
+# Seed channels. `python -m pipeline seed` resolves handles to channel ids via the Data API
+# (channels.list forHandle) and derives the Shorts-only playlist id (UC... -> UUSH...).
+# Unresolved handles are logged and skipped, not fatal. Edit freely; this is data, not code.
+#
+# level_hint: rough CEFR level of the channel's spoken German (used as the last-resort CEFR).
+# topics: taxonomy ids from data/topics.yaml. dubs: channel known to publish multi-audio dubs.
+# en_counterpart: handle of a channel publishing the same content in English (pair mode).
+channels:
+  # --- learner-oriented (A1-B1) -------------------------------------------------------
+  - handle: EasyGerman
+    level_hint: A2
+    topics: [daily_life, culture, language_learning]
+  - handle: LearnGermanwithAnja
+    level_hint: A1
+    topics: [language_learning]
+  - handle: MrLAntrim            # Learn German with Herr Antrim
+    level_hint: A1
+    topics: [language_learning]
+  - handle: dwdeutschlernen      # DW Deutsch lernen
+    level_hint: A2
+    topics: [language_learning, culture, news]
+  - handle: DeutschmitRieke
+    level_hint: B2
+    topics: [language_learning]
+  - handle: YourGermanTeacher
+    level_hint: A1
+    topics: [language_learning]
+  - handle: goetheinstitut
+    level_hint: A2
+    topics: [language_learning, culture]
+  - handle: ThatGermanWord       # slow German shorts
+    level_hint: A1
+    topics: [language_learning, daily_life]
+  - handle: DeutschmitLari
+    level_hint: A2
+    topics: [language_learning]
+  - handle: lingoni              # lingoni GERMAN
+    level_hint: A1
+    topics: [language_learning]
+
+  # --- kids / explainer (simple native German) -------------------------------------------
+  - handle: DieSendungmitderMaus
+    level_hint: A2
+    topics: [kids, science]
+  - handle: CheckerWelt          # Checker Tobi / Checker Julian
+    level_hint: A2
+    topics: [kids, science, daily_life]
+  - handle: logo                 # ZDF logo! Kindernachrichten
+    level_hint: A2
+    topics: [kids, news]
+  - handle: DingeErklaert        # Dinge Erklärt - Kurzgesagt (German Kurzgesagt)
+    level_hint: B1
+    topics: [science]
+    en_counterpart: kurzgesagt
+  - handle: MrWissen2go
+    level_hint: B2
+    topics: [news, history]
+  - handle: DoktorWhatson
+    level_hint: B1
+    topics: [science]
+  - handle: BreakingLab
+    level_hint: B1
+    topics: [science, tech]
+
+  # --- same content in EN and DE (pair mode candidates) ---------------------------------
+  - handle: veritasiumDE
+    level_hint: B1
+    topics: [science]
+    dubs: 1
+    en_counterpart: veritasium
+  - handle: TEDEdDeutsch
+    level_hint: B1
+    topics: [science, history, culture]
+    en_counterpart: TEDEd
+  - handle: DharMannGerman
+    level_hint: A2
+    topics: [daily_life, comedy]
+    dubs: 1
+    en_counterpart: DharMann
+  - handle: dwdeutsch
+    level_hint: B2
+    topics: [news, culture]
+    en_counterpart: dwnews
+
+  # --- native general-interest niches (stretch) -----------------------------------------
+  - handle: SallysWelt
+    level_hint: B1
+    topics: [food]
+  - handle: MadyMorrison
+    level_hint: B1
+    topics: [fitness]
+  - handle: SaschaHuber
+    level_hint: B1
+    topics: [fitness]
+  - handle: AlexiBexi
+    level_hint: B1
+    topics: [tech]
+  - handle: Felixba
+    level_hint: B1
+    topics: [tech]
+  - handle: HerrAnwalt
+    level_hint: B1
+    topics: [law, daily_life]
+  - handle: JulienBam
+    level_hint: B1
+    topics: [comedy, music]
+  - handle: PhilLaude
+    level_hint: B1
+    topics: [comedy]
+  - handle: JulesBoringLife
+    level_hint: B1
+    topics: [daily_life]
+  - handle: tagesschau
+    level_hint: B2
+    topics: [news]
+  - handle: Simplicissimus
+    level_hint: B2
+    topics: [science, culture, business]
+  - handle: maiLab
+    level_hint: B2
+    topics: [science]

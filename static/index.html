@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <title>독일어 쇼츠</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- The single YouTube player lives here. Nothing is ever positioned over it. -->
+  <div id="stage"><div id="player-box"><div id="player"></div></div></div>
+
+  <main id="views">
+    <section id="view-feed">
+      <div id="rail"></div>
+    </section>
+    <section id="view-vocab" class="page" hidden></section>
+    <section id="view-settings" class="page" hidden></section>
+    <section id="view-onboarding" class="page" hidden></section>
+    <section id="view-token" class="page" hidden>
+      <h2 data-i18n="token_title">토큰 입력</h2>
+      <p data-i18n="token_help">PC의 .env 파일에 있는 APP_TOKEN 값을 입력하세요.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="APP_TOKEN">
+      <button id="token-save" class="btn primary" data-i18n="save">저장</button>
+    </section>
+  </main>
+
+  <nav id="tabbar">
+    <button class="tab active" data-view="feed"><span class="ico">▶</span><span data-i18n="tab_feed">피드</span></button>
+    <button class="tab" data-view="vocab"><span class="ico">✎</span><span data-i18n="tab_vocab">단어장</span><span id="vocab-count" class="badge" hidden></span></button>
+    <button class="tab" data-view="settings"><span class="ico">⚙</span><span data-i18n="tab_settings">설정</span></button>
+  </nav>
+
+  <div id="toast" hidden></div>
+
+  <script src="https://www.youtube.com/iframe_api" async></script>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

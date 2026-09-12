@@ -1,0 +1,57 @@
+# Topic taxonomy. ids are stable and used in prompts, scoring and the UI. Keywords are used by
+# the no-LLM fallback matcher (titles, Takeout watch history). Keep ids ASCII.
+topics:
+  - id: daily_life
+    label_ko: 일상·브이로그
+    keywords: [vlog, 브이로그, alltag, daily, routine, morgen, tag, leben, 일상, wohnung, wg]
+  - id: language_learning
+    label_ko: 독일어 학습
+    keywords: [deutsch lernen, learn german, german, grammatik, wortschatz, 독일어, vokabel, aussprache, a1, a2, b1]
+  - id: culture
+    label_ko: 독일 문화·사회
+    keywords: [kultur, deutschland, germany, tradition, gesellschaft, 문화, 독일, feiertag, weihnachten, oktoberfest]
+  - id: food
+    label_ko: 요리·음식
+    keywords: [rezept, kochen, essen, backen, food, recipe, 요리, 음식, 레시피, küche, brot, kuchen]
+  - id: science
+    label_ko: 과학
+    keywords: [wissenschaft, science, physik, chemie, biologie, universum, weltraum, 과학, 우주, forschung, experiment]
+  - id: tech
+    label_ko: 테크·IT
+    keywords: [technik, tech, smartphone, iphone, android, computer, ki, ai, software, app, gadget, 테크, 아이폰, 컴퓨터]
+  - id: news
+    label_ko: 뉴스·시사
+    keywords: [nachrichten, news, politik, aktuell, tagesschau, 뉴스, 정치, wahl, regierung]
+  - id: kids
+    label_ko: 어린이·교육
+    keywords: [kinder, kids, maus, logo, checker, schule, lernen, erklärt, 어린이, 교육]
+  - id: comedy
+    label_ko: 코미디·스케치
+    keywords: [comedy, sketch, lustig, witz, humor, parodie, 코미디, 개그, 웃긴, meme]
+  - id: fitness
+    label_ko: 운동·건강
+    keywords: [fitness, workout, training, sport, gym, gesundheit, yoga, laufen, 운동, 헬스, 건강]
+  - id: travel
+    label_ko: 여행
+    keywords: [reise, travel, urlaub, stadt, city, 여행, flug, hotel, sehenswürdigkeit]
+  - id: animals
+    label_ko: 동물·자연
+    keywords: [tiere, hund, katze, animals, natur, nature, wald, 동물, 강아지, 고양이, 자연]
+  - id: music
+    label_ko: 음악
+    keywords: [musik, music, song, lied, konzert, 음악, 노래, band, rap]
+  - id: gaming
+    label_ko: 게임
+    keywords: [gaming, game, spiel, zocken, minecraft, playstation, 게임]
+  - id: business
+    label_ko: 경제·돈·커리어
+    keywords: [geld, business, finanzen, job, karriere, arbeit, startup, 경제, 돈, 커리어, 직장]
+  - id: history
+    label_ko: 역사
+    keywords: [geschichte, history, krieg, mittelalter, 역사, ddr, mauer]
+  - id: diy
+    label_ko: DIY·생활 팁
+    keywords: [diy, basteln, tipps, tricks, hack, haushalt, 꿀팁, 생활, lifehack]
+  - id: law
+    label_ko: 법·상식
+    keywords: [recht, anwalt, gesetz, law, 법, 변호사, polizei]

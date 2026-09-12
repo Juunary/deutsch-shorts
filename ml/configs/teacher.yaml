@@ -1,0 +1,18 @@
+# Teacher used to label transcripts (ml/teacher_label.py). Default: a large open model served locally by vLLM
+# on the lab server (2x RTX 3080 Ti 12 GB -> tensor_parallel 2, 4-bit AWQ/GPTQ weights).
+backend: vllm
+
+vllm:
+  base_url: http://127.0.0.1:8000/v1
+  model: Qwen/Qwen3-32B-AWQ          # alternatives: google/gemma-3-27b-it (bf16 too big for 2x12GB -> use a 4-bit variant)
+  tensor_parallel: 2
+  max_model_len: 8192
+  temperature: 0.2
+  concurrency: 4
+
+# Optional higher-quality subset via the Claude API. Costs money: ~$0.044/video (Opus 5), ~$0.017 (Sonnet 5).
+# Only turn on after approving the cost.
+claude:
+  enabled: false
+  model: claude-opus-5
+  max_videos: 500

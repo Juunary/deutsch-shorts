@@ -1,0 +1,32 @@
+# Student model: a 3-4B multilingual instruct model fine-tuned (QLoRA) on the enrichment task.
+# Candidates to benchmark first with ml/bench_base.py (zero-shot JSON validity + Korean quality + latency):
+#   Qwen/Qwen3-4B (or the newest Qwen 3-4B instruct), google/gemma-3-4b-it, and any newer 3-4B multilingual model.
+# Keep the student <= 4B so Q4 GGUF runs fast on the PC's RTX 4070 Laptop (8 GB).
+base_model: Qwen/Qwen3-4B
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: all-linear
+
+train:
+  lr: 2.0e-4
+  epochs: 2
+  warmup_ratio: 0.03
+  seq_len: 2048
+  micro_batch: 4
+  grad_accum: 4
+  bf16: true
+  gradient_checkpointing: true
+  packing: false
+  eval_steps: 200
+  save_steps: 200
+  early_stopping_patience: 3
+
+data:
+  # relative amount of auxiliary tasks vs the main enrich task (enrich = 1.0)
+  mix: {enrich: 1.0, translate: 0.4, gloss: 0.2, cefr: 0.1}
+  max_examples: {translate: 150000, gloss: 30000, cefr: 5000}
+  heldout_channel_fraction: 0.2   # whole channels held out for test (generalisation to unseen channels)
+  val_fraction: 0.05

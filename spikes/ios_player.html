@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>spike: iOS autoplay</title>
+<style>
+  body { margin: 0; background: #111; color: #eee; font-family: -apple-system, sans-serif; }
+  #stage { position: fixed; top: 0; left: 0; right: 0; height: 55dvh; background: #000; display: flex; justify-content: center; }
+  #box { height: 100%; width: min(100vw, calc(55dvh * 9 / 16)); }
+  #player, #player iframe { width: 100%; height: 100%; }
+  #ui { position: fixed; top: 55dvh; bottom: 0; left: 0; right: 0; overflow: auto; padding: 12px; }
+  button { font-size: 16px; padding: 12px 16px; margin: 4px; border-radius: 10px; border: 0; }
+  #swipe { border: 1px dashed #888; padding: 24px; text-align: center; margin: 8px 0; }
+  pre { font-size: 12px; white-space: pre-wrap; }
+</style></head>
+<body>
+<div id="stage"><div id="box"><div id="player"></div></div></div>
+<div id="ui">
+  <p>스파이크 (a): 첫 탭 후 단일 플레이어 + loadVideoById 로 소리 자동재생이 되는지.</p>
+  <button id="start">1. Start (tap → play A)</button>
+  <button id="timer">2. Next without gesture (2 s timer → B)</button>
+  <div id="swipe">3. 여기를 터치/스와이프 → C 로드 (touchend)</div>
+  <button id="rate">4. setPlaybackRate 0.75</button>
+  <p><a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank" style="color:#8cf">(b) 자동 더빙 영상을 YouTube 앱에서 열어 ⚙ → 오디오 트랙 확인</a></p>
+  <pre id="log"></pre>
+</div>
+<script src="https://www.youtube.com/iframe_api" async></script>
+<script>
+  const A = 'dQw4w9WgXcQ', B = '9bZkp7q19f0', C = 'kJQP7kiw5Fk';
+  const log = (m) => { const el = document.getElementById('log'); el.textContent = `${new Date().toISOString().slice(11, 19)} ${m}\n` + el.textContent; };
+  const names = { '-1': 'UNSTARTED', 0: 'ENDED', 1: 'PLAYING', 2: 'PAUSED', 3: 'BUFFERING', 5: 'CUED' };
+  let player = null;
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player('player', {
+      videoId: A, host: 'https://www.youtube-nocookie.com',
+      playerVars: { playsinline: 1, rel: 0, cc_load_policy: 0, enablejsapi: 1, controls: 1, origin: location.origin },
+      events: {
+        onReady: () => log('ready (cued A)'),
+        onStateChange: (e) => log('state ' + names[e.data] + ' t=' + player.getCurrentTime().toFixed(2) + ' muted=' + player.isMuted()),
+        onError: (e) => log('ERROR ' + e.data),
+      },
+    });
+  };
+  document.getElementById('start').onclick = () => { log('tap start → playVideo()'); player.playVideo(); };
+  document.getElementById('timer').onclick = () => { log('timer armed (2 s)'); setTimeout(() => { log('timer → loadVideoById(B) (no gesture)'); player.loadVideoById(B); }, 2000); };
+  document.getElementById('swipe').addEventListener('touchend', () => { log('touchend → loadVideoById(C)'); player.loadVideoById(C); }, { passive: true });
+  document.getElementById('swipe').addEventListener('click', () => { log('click → loadVideoById(C)'); player.loadVideoById(C); });
+  document.getElementById('rate').onclick = () => { player.setPlaybackRate(0.75); log('rate ' + player.getPlaybackRate()); };
+  setInterval(() => { if (player && player.getPlayerState && player.getPlayerState() === 1) document.title = 't=' + player.getCurrentTime().toFixed(1); }, 250);
+</script>
+</body></html>

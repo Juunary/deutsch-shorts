@@ -1,0 +1,20 @@
+# Lab server only (Linux, CUDA). Install torch first with the CUDA wheel that matches the driver:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+torch
+transformers>=4.45
+peft>=0.13
+trl>=0.20
+bitsandbytes>=0.44
+accelerate>=1.0
+datasets>=3.0
+sentencepiece
+protobuf
+huggingface_hub
+pyyaml
+httpx
+pydantic>=2.7
+sacrebleu
+spacy>=3.7            # then: python -m spacy download de_core_news_md
+gguf                  # llama.cpp conversion helper (convert_hf_to_gguf.py also needs the llama.cpp checkout)
+# teacher serving (optional, heavy): pip install vllm
+# faster QLoRA (optional): pip install unsloth

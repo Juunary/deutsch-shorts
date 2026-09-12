@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>frontend unit tests</title>
+<style>body{font-family:monospace;background:#111;color:#eee;padding:16px} .ok{color:#7c4} .fail{color:#f66}</style></head>
+<body><h2>frontend unit tests</h2><pre id="out"></pre>
+<script type="module">
+import { findIndex, tokenize, createSync } from '/static/js/subtitles.js';
+import { buildGlossMap, lookupGloss, renderGermanLine } from '/static/js/gloss.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+function check(name, cond, info = '') {
+  const line = document.createElement('div');
+  line.className = cond ? 'ok' : 'fail';
+  line.textContent = `${cond ? 'PASS' : 'FAIL'} ${name}${cond ? '' : ' ' + info}`;
+  out.append(line);
+  cond ? pass++ : fail++;
+}
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// findIndex
+const starts = [0, 2000, 4500, 7000];
+check('findIndex before first', findIndex(starts, -1) === -1);
+check('findIndex exact start', findIndex(starts, 2000) === 1);
+check('findIndex between', findIndex(starts, 4499) === 1);
+check('findIndex after last', findIndex(starts, 99999) === 3);
+check('findIndex empty', findIndex([], 10) === -1);
+
+// tokenize
+const toks = tokenize("Schöne Grüße, Herr Müller-Lüdenscheidt! Wie geht's?");
+check('tokenize words', eq(toks.filter(t => t.word).map(t => t.w), ['Schöne', 'Grüße', 'Herr', 'Müller-Lüdenscheidt', 'Wie', "geht's"]), JSON.stringify(toks));
+check('tokenize keeps punctuation', toks.map(t => t.w).join('') === "Schöne Grüße, Herr Müller-Lüdenscheidt! Wie geht's?");
+
+// gloss map + rendering
+const map = buildGlossMap([{ surface: 'Grüße', lemma: 'der Gruß, -"e', pos: 'noun', level: 'A2', ko: '인사', en: 'greeting' }]);
+check('lookupGloss case-insensitive', lookupGloss(map, 'grüße') !== null);
+check('lookupGloss strips punctuation', lookupGloss(map, 'Grüße,') !== null);
+check('lookupGloss miss', lookupGloss(map, 'Herr') === null);
+const html = renderGermanLine('Schöne Grüße, Herr!', map, { ruby: true, lang: 'ko' });
+check('render ruby for glossed word', html.includes('<ruby class="w g" data-w="Grüße">Grüße<rt>인사</rt></ruby>'), html);
+check('render plain span for other words', html.includes('<span class="w" data-w="Herr">Herr</span>'), html);
+const esc = renderGermanLine('<b>x</b>', map);
+check('render escapes html', !esc.includes('<b>') && esc.includes('&lt;') && esc.includes('&gt;'), esc);
+
+// sync loop with a fake clock/player
+let now = 0, t = 0, st = 1; const indices = [];
+const fake = { getTime: () => t, state: () => st };
+const s = createSync(fake, (i) => indices.push(i), { now: () => now, raf: () => 0, caf: () => {} });
+s.start([{ start_ms: 0 }, { start_ms: 1000 }, { start_ms: 2000 }]);
+check('sync initial index 0', eq(indices, [0]), JSON.stringify(indices));
+now = 100; t = 0.1; s.tick();            // no new sample yet (100 < 250) -> estimate 0.1 s
+check('sync estimate stays at 0', eq(indices, [0]));
+now = 1100; t = 1.1; s.tick();           // sample -> 1.1 s -> index 1
+check('sync samples at 250ms', eq(indices, [0, 1]), JSON.stringify(indices));
+now = 1300; s.tick();                    // estimate 1.1 + 0.2 = 1.3 -> still 1
+check('sync interpolates', eq(indices, [0, 1]));
+now = 2100; t = 2.05; s.tick();          // sample 2.05 -> index 2
+check('sync follows seek/sample', eq(indices, [0, 1, 2]), JSON.stringify(indices));
+st = 2; now = 2400; t = 2.05; s.tick();  // paused: estimate frozen
+check('sync frozen when paused', eq(indices, [0, 1, 2]));
+s.stop();
+
+const sum = document.createElement('h3'); sum.textContent = `${pass} passed, ${fail} failed`; sum.className = fail ? 'fail' : 'ok'; out.prepend(sum);
+</script></body></html>
