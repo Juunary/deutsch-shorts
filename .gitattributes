@@ -1,0 +1,18 @@
+# Keep Linux-bound files LF even on Windows checkouts (the server receives working-copy files via scp).
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sql text eol=lf
+*.webmanifest text eol=lf
+*.svg text eol=lf
+*.ps1 text eol=crlf
+*.gguf binary
+*.db binary
