@@ -184,6 +184,8 @@ def test_enrich_one_paths(seeded_db):
     s = E.run_enrich(seeded_db, backend=FakeBackend(["good"]), retry_failed=True, limit=5)
     assert s["ok"] == 1 and s["llm_calls"] == 1
     # parallel workers use one connection per thread and produce the same result
+    with tx(seeded_db):
+        seeded_db.execute("UPDATE videos SET enrich_status='pending'")
     s = E.run_enrich(seeded_db, backend=FakeBackend(["good"]), retry_failed=True, limit=5, force=True, workers=3)
     assert s["ok"] == 2 and s["llm_calls"] == 2
     assert seeded_db.execute("SELECT count(*) FROM enrichments WHERE status='ok'").fetchone()[0] == 2
