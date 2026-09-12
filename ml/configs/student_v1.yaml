@@ -1,8 +1,10 @@
 # Student model: a 3-4B multilingual instruct model fine-tuned (QLoRA) on the enrichment task.
-# Candidates to benchmark first with ml/bench_base.py (zero-shot JSON validity + Korean quality + latency):
-#   Qwen/Qwen3-4B (or the newest Qwen 3-4B instruct), google/gemma-3-4b-it, and any newer 3-4B multilingual model.
-# Keep the student <= 4B so Q4 GGUF runs fast on the PC's RTX 4070 Laptop (8 GB).
-base_model: Qwen/Qwen3-4B
+# Primary candidate: Qwen/Qwen3-4B-Instruct-2507 (non-thinking instruct variant: no <think> to suppress, better
+# instruction following than the hybrid Qwen3-4B). Fallback/second candidate: Qwen/Qwen3-4B (hybrid; needs
+# enable_thinking=false at inference). google/gemma-3-4b-it is gated on HF (needs an approved token).
+# Benchmark candidates with ml/bench_base.py before training. Keep the student <= 4B so the Q4 GGUF runs fast on
+# the PC's RTX 4070 Laptop (8 GB).
+base_model: Qwen/Qwen3-4B-Instruct-2507
 
 lora:
   r: 16
@@ -23,6 +25,7 @@ train:
   eval_steps: 200
   save_steps: 200
   early_stopping_patience: 3
+  # smoke test first: python ml/train.py --run smoke --max-steps 20 --max-examples 200
 
 data:
   # relative amount of auxiliary tasks vs the main enrich task (enrich = 1.0)

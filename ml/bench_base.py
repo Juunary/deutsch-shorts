@@ -30,7 +30,7 @@ def main() -> None:
     lat = []
     with httpx.Client(base_url=a.url.rstrip("/"), timeout=600) as c:
         for v in videos:
-            body = {"model": a.model, "temperature": 0.2, "max_tokens": 4096,
+            body = {"model": a.model, "temperature": 0.2, "max_tokens": 4096, "chat_template_kwargs": {"enable_thinking": False},
                     "messages": [{"role": "system", "content": sys_prompt}, {"role": "user", "content": json.dumps(payload_for(v), ensure_ascii=False)}]}
             if not a.no_schema:
                 body["response_format"] = {"type": "json_schema", "json_schema": {"name": "enrichment", "schema": schema}}

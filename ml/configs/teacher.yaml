@@ -1,14 +1,20 @@
 # Teacher used to label transcripts (ml/teacher_label.py). Default: a large open model served locally by vLLM
-# on the lab server (2x RTX 3080 Ti 12 GB -> tensor_parallel 2, 4-bit AWQ/GPTQ weights).
+# on the lab server sailab01 (2x RTX 3080 Ti 12 GB, driver 550 -> CUDA 12.4 -> vllm 0.10.1).
+#
+# 2026-09-13 finding: Qwen3-32B-AWQ does NOT fit (9 GiB weights per GPU leave no KV cache; the fp8-KV workaround
+# falls back to the V0 engine, which ignores response_format json_schema). Qwen3-14B-AWQ runs on the V1 engine
+# with schema-constrained decoding (~466 tok/s at 8 concurrent requests). --max-num-seqs 16 is required (256 -> OOM).
 backend: vllm
 
 vllm:
   base_url: http://127.0.0.1:8000/v1
-  model: Qwen/Qwen3-32B-AWQ          # alternatives: google/gemma-3-27b-it (bf16 too big for 2x12GB -> use a 4-bit variant)
+  model: Qwen/Qwen3-14B-AWQ
   tensor_parallel: 2
   max_model_len: 8192
+  max_num_seqs: 16
   temperature: 0.2
-  concurrency: 4
+  concurrency: 8
+  enable_thinking: false        # Qwen3 hybrid models emit <think> unless disabled via chat_template_kwargs
 
 # Optional higher-quality subset via the Claude API. Costs money: ~$0.044/video (Opus 5), ~$0.017 (Sonnet 5).
 # Only turn on after approving the cost.

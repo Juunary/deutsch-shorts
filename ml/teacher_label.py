@@ -33,6 +33,7 @@ class Teacher:
             self.client = httpx.Client(base_url=cfg["vllm"]["base_url"], timeout=600)
             self.model = cfg["vllm"]["model"]
             self.temperature = float(cfg["vllm"].get("temperature", 0.2))
+            self.enable_thinking = bool(cfg["vllm"].get("enable_thinking", False))
         elif backend == "claude":
             if not cfg.get("claude", {}).get("enabled"):
                 raise SystemExit("claude teacher is disabled in configs/teacher.yaml (set enabled: true after approving the cost)")
@@ -48,6 +49,7 @@ class Teacher:
                 "model": self.model, "temperature": self.temperature, "max_tokens": 4096,
                 "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": user}],
                 "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}},
+                "chat_template_kwargs": {"enable_thinking": self.enable_thinking},   # Qwen3 hybrid models
             })
             r.raise_for_status()
             data = r.json()
@@ -81,10 +83,11 @@ class Teacher:
         raise EnrichmentValidationError(hint or "invalid")
 
 
-def label_all(backend: str, limit: int | None, concurrency: int) -> None:
+def label_all(backend: str, limit: int | None, concurrency: int | None) -> None:
     from common import load_yaml
     cfg = load_yaml(CONFIG)
     teacher = Teacher(backend, cfg)
+    concurrency = concurrency or int(cfg.get("vllm", {}).get("concurrency", 4))
     out = WORK / "teacher_labels.jsonl"
     fails = WORK / "teacher_failures.jsonl"
     done = {r["video_id"] for r in read_jsonl(out)}
@@ -156,7 +159,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", default="vllm", choices=["vllm", "claude"])
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--concurrency", type=int, default=None, help="default: vllm.concurrency from teacher.yaml")
     ap.add_argument("--gloss-ko", action="store_true")
     a = ap.parse_args()
     ensure_dirs()

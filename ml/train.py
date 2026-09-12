@@ -17,7 +17,8 @@ from typing import Any
 from common import ML_DIR, RUNS, SFT, ensure_dirs, load_yaml  # noqa: E402
 
 
-def train(cfg: dict[str, Any], run: str, resume: bool, use_unsloth: bool) -> None:
+def train(cfg: dict[str, Any], run: str, resume: bool, use_unsloth: bool, max_steps: int | None = None,
+          max_examples: int | None = None) -> None:
     import torch
     from datasets import load_dataset
     from transformers import AutoTokenizer, BitsAndBytesConfig, EarlyStoppingCallback
@@ -31,6 +32,9 @@ def train(cfg: dict[str, Any], run: str, resume: bool, use_unsloth: bool) -> Non
 
     ds = load_dataset("json", data_files={"train": str(SFT / "train.jsonl"), "val": str(SFT / "val.jsonl")})
     ds = ds.remove_columns([c for c in ds["train"].column_names if c != "messages"])
+    if max_examples:  # smoke test on a small slice
+        ds["train"] = ds["train"].select(range(min(max_examples, len(ds["train"]))))
+        ds["val"] = ds["val"].select(range(min(max(20, max_examples // 10), len(ds["val"]))))
 
     tokenizer = AutoTokenizer.from_pretrained(base)
     if tokenizer.pad_token is None:
@@ -67,8 +71,12 @@ def train(cfg: dict[str, Any], run: str, resume: bool, use_unsloth: bool) -> Non
         logging_steps=10, eval_strategy="steps", eval_steps=int(tr.get("eval_steps", 200)), save_strategy="steps",
         save_steps=int(tr.get("save_steps", 200)), save_total_limit=3, load_best_model_at_end=True,
         metric_for_best_model="eval_loss", greater_is_better=False, report_to=[], gradient_checkpointing=bool(tr.get("gradient_checkpointing", True)),
-        assistant_only_loss=True,   # loss on the assistant turn only (TRL >= 0.20); older TRL: see completion_only fallback below
+        assistant_only_loss=True,   # loss on the assistant turn only (TRL >= 0.20)
     )
+    if max_steps:
+        sft_kwargs["max_steps"] = int(max_steps)
+        sft_kwargs["eval_steps"] = min(int(sft_kwargs["eval_steps"]), max(1, int(max_steps) // 2))
+        sft_kwargs["save_steps"] = sft_kwargs["eval_steps"]
     try:
         config = SFTConfig(**sft_kwargs)
     except TypeError:  # older TRL without assistant_only_loss / max_length
@@ -95,9 +103,11 @@ def main() -> None:
     ap.add_argument("--run", default="student_v1")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--unsloth", action="store_true")
+    ap.add_argument("--max-steps", type=int, default=None, help="smoke test: stop after N optimizer steps")
+    ap.add_argument("--max-examples", type=int, default=None, help="smoke test: use only the first N training examples")
     a = ap.parse_args()
     ensure_dirs()
-    train(load_yaml(a.config), a.run, a.resume, a.unsloth)
+    train(load_yaml(a.config), a.run, a.resume, a.unsloth, a.max_steps, a.max_examples)
 
 
 if __name__ == "__main__":

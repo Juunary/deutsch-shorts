@@ -40,7 +40,7 @@ def predict_endpoint(url: str, model: str, messages: list[dict[str, str]], timeo
     import httpx
     t0 = time.perf_counter()
     r = httpx.post(f"{url.rstrip('/')}/v1/chat/completions", timeout=timeout, json={
-        "model": model, "messages": messages[:2], "temperature": 0.2, "max_tokens": 4096,
+        "model": model, "messages": messages[:2], "temperature": 0.2, "max_tokens": 4096, "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_schema", "json_schema": {"name": "enrichment", "schema": Enrichment.model_json_schema(), "strict": True}}})
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"], int((time.perf_counter() - t0) * 1000)

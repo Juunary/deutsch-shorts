@@ -168,7 +168,7 @@ class LocalBackend:
         try:
             if self.kind() == "ollama":
                 r = self._client.post(f"{self.url}/api/chat", json={
-                    "model": self.model, "messages": messages, "stream": False, "format": schema,
+                    "model": self.model, "messages": messages, "stream": False, "format": schema, "think": False,
                     "options": {"temperature": 0.2, "num_ctx": 8192},
                 })
                 r.raise_for_status()
@@ -178,6 +178,7 @@ class LocalBackend:
             else:
                 r = self._client.post(f"{self.url}/v1/chat/completions", json={
                     "model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": 4096,
+                    "chat_template_kwargs": {"enable_thinking": False},   # Qwen3 hybrid models; ignored by others
                     "response_format": {"type": "json_schema",
                                         "json_schema": {"name": "enrichment", "schema": schema, "strict": True}},
                 })
