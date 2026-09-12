@@ -314,8 +314,14 @@ def ingest(conn: sqlite3.Connection, api: YouTubeAPI, full: bool = False, limit_
             except PlaylistNotFound:
                 log.info("%s: no UUSH playlist, falling back to uploads + shorts check", ch.get("handle"))
                 checker = checker or ShortsChecker()
-                new_items = _page_new_items(api, uploads_id(ch["id"]), known, stop_at_known, BACKFILL_PAGES,
-                                            keep=checker.is_short)
+                try:
+                    new_items = _page_new_items(api, uploads_id(ch["id"]), known, stop_at_known, BACKFILL_PAGES,
+                                                keep=checker.is_short)
+                except PlaylistNotFound:
+                    log.warning("%s: uploads playlist not found either; skipping channel", ch.get("handle"))
+                    with tx(conn):
+                        conn.execute("UPDATE channels SET last_ingested_at=? WHERE id=?", (utcnow(), ch["id"]))
+                    continue
             details = api.videos_details([it["video_id"] for it in new_items]) if new_items else []
         except QuotaExceeded as e:
             log.error("quota exceeded, stopping ingest: %s", e)

@@ -34,7 +34,7 @@ def data_api_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"items": [{"id": cid, "snippet": {"title": handle}, "contentDetails": {"relatedPlaylists": {"uploads": "UU" + cid[2:]}}}] if cid else []})
     if path.endswith("/playlistItems"):
         pid, token = q["playlistId"], q.get("pageToken")
-        if pid.startswith("UUSHbbbb"):
+        if pid.startswith("UUSHbbbb") or pid.startswith("UUSHcccc") or pid.startswith("UUcccc"):
             return httpx.Response(404, json={"error": {"message": "playlist not found", "errors": [{"reason": "playlistNotFound"}]}})
         pages = {None: (["v1", "v2", "v3"], "p2"), "p2": (["v4", "v5"], None)}
         ids, nxt = pages[token]
@@ -80,6 +80,8 @@ def test_seed_and_ingest(db):
         def is_short(self, vid):
             return vid in ("v1", "v5")
 
+    with tx(db):  # a channel with neither UUSH nor uploads playlist must be skipped, not crash the stage
+        db.execute("INSERT INTO channels(id, handle, shorts_playlist_id, level_hint) VALUES(?,?,?,?)", ("UC" + "c" * 22, "Ghost", "UUSH" + "c" * 22, "A1"))
     units_before = api.units_today()
     s = I.ingest(db, api, checker=Checker())
     vids = {r["id"]: dict(r) for r in db.execute("SELECT * FROM videos")}
@@ -88,6 +90,7 @@ def test_seed_and_ingest(db):
     assert vids["v5"]["has_dub"] == 1 and vids["v1"]["duration_s"] == 45 and vids["v1"]["default_audio_lang"] == "de"
     # counterpart channel has no UUSH playlist -> uploads + shorts check; the fake ids already exist, so nothing new
     assert s["channels"] == 2 and s["new"] == 2 and s["errors"] == []
+    assert db.execute("SELECT last_ingested_at FROM channels WHERE handle='Ghost'").fetchone()[0] is not None
     assert db.execute("SELECT last_ingested_at FROM channels WHERE id=?", (CP_ID,)).fetchone()[0] is not None
     # second run stops at the first known id and inserts nothing
     s2 = I.ingest(db, api)
