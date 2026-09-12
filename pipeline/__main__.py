@@ -3,6 +3,7 @@
     python -m pipeline <stage> [--limit N] [--video ID] [--full] [--retry-failed] [--force] [--no-translate]
 
 Stages: seed | ingest | backfill | transcripts | translate | heuristics | enrich | pair | decay | all | stats
+        export (content tables -> data/content.jsonl) | import --file X | pull (scp the server export + import)
 `all` = seed -> ingest (RSS when no API key) -> transcripts -> heuristics -> enrich -> pair -> decay.
 Every stage writes a pipeline_runs row. Logs go to stdout and logs/pipeline-YYYYMMDD.log.
 """
@@ -22,7 +23,8 @@ from app.config import ROOT, settings
 from app.db import open_db, tx, utcnow
 
 log = logging.getLogger("pipeline")
-STAGES = ["seed", "ingest", "backfill", "transcripts", "translate", "heuristics", "enrich", "pair", "decay", "all", "stats"]
+STAGES = ["seed", "ingest", "backfill", "transcripts", "translate", "heuristics", "enrich", "pair", "decay", "all", "stats",
+          "export", "import", "pull"]
 
 
 def setup_logging() -> None:
@@ -133,6 +135,24 @@ def stage_decay(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str,
     return decay(conn)
 
 
+def stage_export(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
+    from .sync import DEFAULT_EXPORT, export_content
+    out = Path(args.out) if args.out else DEFAULT_EXPORT
+    counts = export_content(conn, out)
+    log.info("exported to %s", out)
+    return counts
+
+
+def stage_import(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
+    from .sync import DEFAULT_EXPORT, import_content
+    return import_content(conn, Path(args.file) if args.file else DEFAULT_EXPORT)
+
+
+def stage_pull(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
+    from .sync import pull
+    return pull(conn, remote=args.remote, remote_path=args.remote_path)
+
+
 def stage_stats(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
     def counts(sql: str) -> dict[str, int]:
         return {str(r[0]): int(r[1]) for r in conn.execute(sql)}
@@ -156,7 +176,7 @@ def stage_stats(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str,
 STAGE_FUNCS = {
     "seed": stage_seed, "ingest": stage_ingest, "backfill": stage_backfill, "transcripts": stage_transcripts,
     "translate": stage_translate, "heuristics": stage_heuristics, "enrich": stage_enrich, "pair": stage_pair,
-    "decay": stage_decay, "stats": stage_stats,
+    "decay": stage_decay, "stats": stage_stats, "export": stage_export, "import": stage_import, "pull": stage_pull,
 }
 ALL_ORDER = ["seed", "ingest", "transcripts", "heuristics", "enrich", "pair", "decay"]
 
@@ -171,6 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="recompute even if already done")
     p.add_argument("--no-translate", action="store_true", help="transcripts: skip machine translation")
     p.add_argument("--dry-run", action="store_true", help="print the plan and exit")
+    p.add_argument("--out", default=None, help="export: output path (default data/content.jsonl)")
+    p.add_argument("--file", default=None, help="import: input path (default data/content.jsonl)")
+    p.add_argument("--remote", default="Mustree", help="pull: ssh host alias")
+    p.add_argument("--remote-path", default="~/deutsch-shorts/data/content.jsonl", help="pull: remote export path")
     args = p.parse_args(argv)
     setup_logging()
     if args.dry_run:

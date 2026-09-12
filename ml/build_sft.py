@@ -46,6 +46,11 @@ def build(config: dict[str, Any], seed: int = 13) -> dict[str, Any]:
 
     videos = {v["video_id"]: v for v in read_jsonl(WORK / "transcripts.jsonl")}
     labels = read_jsonl(WORK / "teacher_labels.jsonl")
+    labelled = {lab["video_id"] for lab in labels}
+    for v in videos.values():  # enrichments produced by `python -m pipeline enrich` (teacher via LocalBackend) count as labels too
+        if v.get("enrichment") and v["video_id"] not in labelled:
+            labels.append({"video_id": v["video_id"], "enrichment": v["enrichment"], "model": v.get("enrich_model")})
+            labelled.add(v["video_id"])
     gold_ids = {r["video_id"] for p in GOLD.glob("*.jsonl") for r in read_jsonl(p)}
     splits: dict[str, list[dict[str, Any]]] = {"train": [], "val": [], "test": []}
     stats: Counter = Counter()

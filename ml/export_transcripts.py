@@ -29,6 +29,8 @@ def export(out: Path, min_segments: int = 2) -> int:
         for t in conn.execute("SELECT idx, lang, source, text FROM translations WHERE video_id=?", (v["id"],)):
             tr.setdefault((t["lang"], t["source"]), {})[t["idx"]] = t["text"]
         corrections = [dict(c) for c in conn.execute("SELECT seg_idx, kind, before_json, after_json FROM corrections WHERE video_id=?", (v["id"],))]
+        enr = conn.execute("SELECT backend, model, status, raw_json FROM enrichments WHERE video_id=? AND status='ok'", (v["id"],)).fetchone()
+        enrichment = json.loads(enr["raw_json"]) if enr and enr["raw_json"] else None
 
         def aligned(lang: str, sources: tuple[str, ...]) -> list[str | None] | None:
             for src in sources:
@@ -45,6 +47,7 @@ def export(out: Path, min_segments: int = 2) -> int:
             "segments": [{"i": s["idx"], "start_ms": s["start_ms"], "end_ms": s["end_ms"], "de": s["text_de"]} for s in segs],
             "mt_ko": aligned("ko", ("deepl", "yt_mt", "gtx")), "mt_en": aligned("en", ("deepl", "yt_mt", "gtx")),
             "user_ko": aligned("ko", ("user",)), "model_ko": aligned("ko", ("model",)), "model_en": aligned("en", ("model",)),
+            "enrichment": enrichment, "enrich_backend": enr["backend"] if enr else None, "enrich_model": enr["model"] if enr else None,
             "gold": bool(corrections), "corrections": [
                 {"seg_idx": c["seg_idx"], "kind": c["kind"], "before": json.loads(c["before_json"]) if c["before_json"] else None,
                  "after": json.loads(c["after_json"])} for c in corrections],

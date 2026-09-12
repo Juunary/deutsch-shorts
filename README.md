@@ -60,6 +60,9 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
 - **지역**: 회선이 독일이므로 `REGION=DE` 로 지역 차단 필터.
 - **오디오 트랙 전환은 코드로 불가** → 더빙 배지 + 안내 시트 + 짝 영상 칩("영어 버전 보기").
 - 스파이크 (a)(b)(d)는 폰과 API 키가 필요해 미완: `spikes/dub_menu_notes.md` 에 결과 기록.
+- **랩 서버(sailab01)**: 드라이버 550(CUDA 12.4)이라 vLLM 0.10.1·torch cu124 계열로 고정. Qwen3-32B-AWQ는 12GB×2에서 KV 캐시가 남지 않아 불가 →
+  교사는 **Qwen3-14B-AWQ**(`--max-num-seqs 16`, 동시 8요청 약 466 tok/s). Qwen3 계열은 `enable_thinking=false`로 `<think>`를 꺼야 한다.
+  장시간 작업은 tmux(systemd --user는 linger 불가). 자세한 환경은 서버의 `ml/SERVER_ENV.md`.
 
 ## 파이프라인 단계
 

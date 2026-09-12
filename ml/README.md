@@ -34,12 +34,13 @@ powershell -File ml\sync\push_to_server.ps1                    # 코드 + transc
 python ml/corpora.py download && python ml/corpora.py clean && python ml/corpora.py sample
 curl -L -o ml/data/raw/kaikki-de.jsonl https://kaikki.org/dictionary/German/kaikki.org-dictionary-German.jsonl
 python ml/silver_gloss.py --wiktionary ml/data/raw/kaikki-de.jsonl
-bash ml/serve/vllm-teacher.sh &                                # 교사 서빙 (:8000)
+tmux new -d -s teacher 'bash ml/serve/vllm-teacher.sh'          # 교사 서빙 (:8000, Qwen3-14B-AWQ, --max-num-seqs 16)
 python ml/teacher_label.py --backend vllm --limit 3000 --concurrency 4
 python ml/teacher_label.py --backend vllm --gloss-ko           # silver gloss 한국어 뜻
 python ml/build_sft.py                                          # -> ml/data/sft/{train,val,test}.jsonl
 python ml/bench_base.py --url http://127.0.0.1:8000 --model <candidate>   # 후보 3개 비교 후 configs/student_v1.yaml 의 base_model 확정
-python ml/train.py --config ml/configs/student_v1.yaml --run student_v1   # 또는 accelerate launch --num_processes 2 ...
+python ml/train.py --run smoke --max-steps 20 --max-examples 200        # 스모크 테스트 먼저 (TRL/transformers 최신 버전 확인)
+tmux new -d -s train 'python ml/train.py --config ml/configs/student_v1.yaml --run student_v1'   # 또는 accelerate launch --num_processes 2 ...
 python ml/merge_export.py --run student_v1 --llama-cpp-dir ~/llama.cpp
 bash ml/serve/llama-server.sh ml/runs/student_v1/student-q4_k_m.gguf &   # :8081
 python ml/eval.py --name yt_mt --system mt
@@ -53,6 +54,14 @@ powershell -File ml\sync\pull_model.ps1 -Run student_v1        # -> models\stude
 powershell -File scripts\llama-server.ps1                       # 또는 -Ollama
 .venv\Scripts\python -m pipeline enrich --retry-failed
 ```
+
+## 서버 환경 메모 (2026-09-13)
+
+- sailab01: Ryzen 9 5950X, RAM 125G, RTX 3080 Ti 12GB ×2, 드라이버 550.144 = CUDA 12.4, 디스크 여유 약 220G, sudo 불가(암호 필요).
+- `~/venvs/ds`: torch 2.6.0+cu124, transformers 5.17, peft 0.20, trl 1.13, bitsandbytes 0.50. `~/venvs/vllm`: vllm 0.10.1.1 (최신 vLLM은 드라이버 580+ 필요).
+- 교사: Qwen3-32B-AWQ 불가(KV 캐시 부족, fp8 KV는 V0 엔진 폴백으로 json_schema 무시) → **Qwen3-14B-AWQ**, `--max-num-seqs 16`, 동시 8요청 약 466 tok/s.
+- 학생 후보: Qwen/Qwen3-4B 캐시됨. gemma-3-4b-it 은 게이트. 1순위는 Qwen3-4B-Instruct-2507(비-thinking).
+- 테스트 실행에는 루트 `requirements.txt`(pydantic-settings 등)와 pytest 도 필요: `pip install -r requirements.txt`.
 
 ## 배포 게이트
 
