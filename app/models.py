@@ -178,15 +178,12 @@ class GlossOut(BaseModel):
 class SubtitlesOut(BaseModel):
     video_id: str
     lang: str
-    tr_source: Optional[str] = None  # model | yt_mt | user | None
+    tr_source: Optional[str] = None  # user | model | deepl | yt_mt | gtx | None
     segments: list[SegmentOut]
     glosses: list[GlossOut] = Field(default_factory=list)
 
 
-EventType = Literal[
-    "impression", "play", "watch", "complete", "like", "skip", "save_word",
-    "embed_error", "too_hard", "too_easy", "no_dub",
-]
+EventType = Literal["impression", "play", "watch", "complete", "skip", "save_word", "embed_error", "no_dub"]
 
 
 class EventIn(BaseModel):

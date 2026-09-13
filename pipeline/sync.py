@@ -83,12 +83,13 @@ def _upsert_video(conn: sqlite3.Connection, r: dict[str, Any]) -> None:
 
 
 def import_content(conn: sqlite3.Connection, path: Path = DEFAULT_EXPORT) -> dict[str, int]:
-    """Upsert an export into this database. Segments/translations/glosses are replaced per video (user rows kept)."""
+    """Upsert an export into this database. Segments and glosses are replaced per video, translations per
+    (video, source); user rows are never touched."""
     counts: dict[str, int] = {t: 0 for t in CONTENT_TABLES}
     removed_glosses = {(r[0], str(r[1]).lower()) for r in conn.execute(
         "SELECT video_id, json_extract(after_json, '$.surface') FROM corrections WHERE kind='gloss' "
         "AND json_extract(after_json, '$.wrong') = 1")}
-    cleared: dict[str, set[str]] = {"segments": set(), "translations": set(), "glosses": set()}
+    cleared: dict[str, set[Any]] = {"segments": set(), "translations": set(), "glosses": set()}
     with tx(conn):
         with path.open(encoding="utf-8") as f:
             for line in f:
@@ -112,9 +113,9 @@ def import_content(conn: sqlite3.Connection, path: Path = DEFAULT_EXPORT) -> dic
                 elif t == "translations":
                     if r.get("source") == "user":
                         continue
-                    if r["video_id"] not in cleared["translations"]:
-                        conn.execute("DELETE FROM translations WHERE video_id=? AND source != 'user'", (r["video_id"],))
-                        cleared["translations"].add(r["video_id"])
+                    if (r["video_id"], r["source"]) not in cleared["translations"]:   # per source, so local on-demand
+                        conn.execute("DELETE FROM translations WHERE video_id=? AND source=?", (r["video_id"], r["source"]))
+                        cleared["translations"].add((r["video_id"], r["source"]))   # (gtx) rows survive an export without them
                     conn.execute("INSERT OR REPLACE INTO translations(video_id, idx, lang, source, text) VALUES(?,?,?,?,?)",
                                  (r["video_id"], r["idx"], r["lang"], r["source"], r["text"]))
                 elif t == "glosses":

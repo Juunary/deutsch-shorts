@@ -5,10 +5,12 @@ import json
 import httpx
 import pytest
 
+from app.db import tx
 from pipeline import heuristics as H
 from pipeline import transcripts as T
 from pipeline import translate as TR
 from pipeline.pair import find_pair
+from tests.conftest import VIDEO_IDS
 from pipeline.youtube_api import (QuotaExceeded, YouTubeAPI, is_dub_description, is_region_blocked,
                                   parse_iso8601_duration, uploads_id, uush_id)
 
@@ -112,17 +114,58 @@ def test_translate_providers(monkeypatch):
     client = httpx.Client(transport=httpx.MockTransport(deepl_handler))
     assert TR.translate_deepl(["hallo", "welt"], "ko", client=client) == ["안녕", "안녕"]
 
-    def gtx_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[[["hello ", "hallo", None, None], ["world", "welt", None, None]]])
+    seen: list[str] = []
 
-    assert TR.translate_gtx(["hallo welt"], "en", client=httpx.Client(transport=httpx.MockTransport(gtx_handler)), sleep=0) == ["hello world"]
+    def google_handler(request: httpx.Request) -> httpx.Response:     # batched POST; first host rate-limited
+        seen.append(request.url.host)
+        if request.url.host == "translate.googleapis.com":
+            return httpx.Response(429, text="<html><title>Sorry...</title></html>")
+        assert request.url.params["client"] == "dict-chrome-ex" and request.url.params["sl"] == "de" and request.url.params["tl"] == "ko"
+        qs = httpx.QueryParams(request.content.decode())
+        return httpx.Response(200, json=[f"T:{q}" for q in qs.get_list("q")])
+
+    monkeypatch.setattr(TR, "GOOGLE_MAX_ITEMS", 2)
+    client = httpx.Client(transport=httpx.MockTransport(google_handler))
+    assert TR.translate_google(["a", "b", "c"], "ko", client=client, sleep=0) == ["T:a", "T:b", "T:c"]
+    assert seen == ["translate.googleapis.com", "clients5.google.com"] * 2          # two chunks, fallback host each time
+    assert TR._parse_google([["x", "de"], ["y", "de"]], 2) == ["x", "y"]
+    assert TR._parse_google("solo", 1) == ["solo"] and TR._parse_google(["x"], 2) is None
+    with pytest.raises(TR.RateLimited):
+        TR.translate_google(["a"], "ko", client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(429))))
+
     monkeypatch.setattr(TR.settings, "mt_provider", "auto")
+    assert TR.pick_provider() == "google"                    # a DeepL key no longer changes the default
+    monkeypatch.setattr(TR.settings, "mt_provider", "gtx")
+    assert TR.pick_provider() == "google"
+    monkeypatch.setattr(TR.settings, "mt_provider", "deepl")
     assert TR.pick_provider() == "deepl"
-    monkeypatch.setattr(TR.settings, "deepl_api_key", "")
-    assert TR.pick_provider() == "gtx"
     monkeypatch.setattr(TR.settings, "mt_provider", "none")
+    assert TR.pick_provider() is None
     with pytest.raises(TR.TranslateError):
         TR.translate_batch(["x"], "ko")
+    monkeypatch.setattr(TR.settings, "mt_provider", "google")
+    monkeypatch.setitem(TR.PROVIDERS, "google", lambda texts, tgt, src="de": [x.upper() for x in texts])
+    assert TR.translate_batch(["ab"], "en") == ("gtx", ["AB"])         # Google keeps the historical source tag
+
+
+def test_translate_video_rate_limit_sets_cooldown(seeded_db, monkeypatch):
+    import pipeline.transcripts as T
+    with tx(seeded_db):
+        seeded_db.execute("DELETE FROM translations")
+
+    def limited(texts, lang, provider=None, src="de"):
+        raise TR.RateLimited("google: HTTP 429")
+    monkeypatch.setattr(T, "translate_batch", limited)
+    with pytest.raises(TR.RateLimited):
+        T.translate_video(seeded_db, VIDEO_IDS[0])
+    assert TR.cooldown_until(seeded_db) is not None
+    monkeypatch.setattr(T, "translate_batch", lambda *a, **k: pytest.fail("must not call the provider during cooldown"))
+    with pytest.raises(TR.RateLimited):
+        T.translate_video(seeded_db, VIDEO_IDS[0])
+    s = T.run_translate(seeded_db)
+    assert s["videos"] == 0 and s["rate_limited"]
+    monkeypatch.setattr(TR.settings, "mt_provider", "none")
+    assert T.translate_video(seeded_db, VIDEO_IDS[0]) == {} and T.run_translate(seeded_db)["skipped"]
 
 
 def test_find_pair_windows():

@@ -1,30 +1,29 @@
-"""Turn user events into affinity updates (topics, channels, level bias) and nightly decay."""
+"""Turn user events into affinity updates (topics, channels) and nightly decay.
+
+The feed learns only from implicit signals: how much of a video was watched (watch share < 30% counts as a skip,
+>= 90% as a complete), explicit swipes/next taps (skip) and embed/dub problems. There are no like or
+too-hard/too-easy buttons."""
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
-
-from app.db import get_setting, set_setting, tx, utcnow
+from app.db import tx, utcnow
 from app.models import EventIn
 
 from .common import clamp, json_list
 
 # (topic delta, channel delta) per event type
 DELTAS: dict[str, tuple[float, float]] = {
-    "like": (0.15, 0.20),
     "skip": (-0.05, -0.10),
     "complete": (0.05, 0.05),
 }
-LEVEL_BIAS_STEP = 0.05
-LEVEL_BIAS_CAP = 0.5
 
 
-def _video_topics(conn: sqlite3.Connection, video_id: str) -> tuple[str | None, list[str], str | None]:
-    r = conn.execute("SELECT v.channel_id, v.topics_json, v.cefr, c.topics_json AS ct, c.level_hint "
+def _video_topics(conn: sqlite3.Connection, video_id: str) -> tuple[str | None, list[str]]:
+    r = conn.execute("SELECT v.channel_id, v.topics_json, c.topics_json AS ct "
                      "FROM videos v JOIN channels c ON c.id=v.channel_id WHERE v.id=?", (video_id,)).fetchone()
     if r is None:
-        return None, [], None
-    return r["channel_id"], (json_list(r["topics_json"]) or json_list(r["ct"])), (r["cefr"] or r["level_hint"])
+        return None, []
+    return r["channel_id"], (json_list(r["topics_json"]) or json_list(r["ct"]))
 
 
 def _bump_topics(conn: sqlite3.Connection, topics: list[str], delta: float) -> None:
@@ -60,17 +59,10 @@ def apply_event(conn: sqlite3.Connection, ev: EventIn) -> None:
         else:
             return
     if kind in DELTAS:
-        channel_id, topics, _ = _video_topics(conn, ev.video_id)
+        channel_id, topics = _video_topics(conn, ev.video_id)
         td, cd = DELTAS[kind]
         _bump_topics(conn, topics, td)
         _bump_channel(conn, channel_id, cd)
-    elif kind in ("too_hard", "too_easy"):
-        _, _, cefr = _video_topics(conn, ev.video_id)
-        if cefr:
-            bias: dict[str, Any] = get_setting(conn, "level_bias", {}) or {}
-            step = -LEVEL_BIAS_STEP if kind == "too_hard" else LEVEL_BIAS_STEP
-            bias[cefr] = clamp(float(bias.get(cefr, 0.0)) + step, -LEVEL_BIAS_CAP, LEVEL_BIAS_CAP)
-            set_setting(conn, "level_bias", bias)
     elif kind == "embed_error":
         conn.execute("UPDATE videos SET embeddable=0 WHERE id=?", (ev.video_id,))
     elif kind == "no_dub":

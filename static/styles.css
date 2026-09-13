@@ -31,9 +31,13 @@ a { color: var(--accent-2); }
 .page h2 { margin: 6px 0 12px; font-size: 18px; }
 .page h3 { margin: 18px 0 8px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 
-/* ---- rail / cards ---- */
-#rail { height: 100%; overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-.card { height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column; padding: 8px 12px 6px; gap: 6px; border-top: 1px solid #262a33; overflow-y: auto; }
+/* ---- rail / cards: a swipe pager (swipe up = next, down = previous); the browser never scrolls it ---- */
+#rail { height: 100%; position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; overscroll-behavior: contain; }
+.card { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 8px 12px 6px; gap: 6px; border-top: 1px solid #262a33; background: var(--bg); overflow: hidden; will-change: transform; }
+.card.anim { transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+.card textarea { user-select: text; -webkit-user-select: text; }
+.sheet-host { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.hint { text-align: center; color: var(--muted); font-size: 12px; }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .card-head .chan { color: var(--text); font-weight: 600; }
 .chip { border: 1px solid #343945; border-radius: 999px; padding: 2px 8px; font-size: 11px; line-height: 1.4; background: var(--panel); }
@@ -42,7 +46,7 @@ a { color: var(--accent-2); }
 .chip.action { cursor: pointer; }
 .ytlink { margin-left: auto; font-size: 12px; text-decoration: none; }
 
-.subs { flex: 1 0 auto; min-height: 96px; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 4px 2px; }
+.subs { flex: 1 1 auto; min-height: 60px; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 4px 2px; }
 .subs-tr { font-size: 20px; line-height: 1.4; font-weight: 600; text-align: center; word-break: keep-all; }
 .subs-de { font-size: 22px; line-height: 1.7; text-align: center; word-break: keep-all; }
 .subs-ctx { font-size: 15px; line-height: 1.5; text-align: center; color: var(--muted); }
@@ -59,7 +63,6 @@ ruby.w rt { font-size: 11px; color: var(--accent); font-weight: 400; }
 .ctrl { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; flex: 0 0 auto; }
 .ctrl button { min-height: 40px; min-width: 40px; padding: 4px 9px; border-radius: 12px; border: 1px solid #343945; background: var(--panel); font-size: 12px; white-space: nowrap; }
 .ctrl button.on { border-color: var(--accent); color: var(--accent); }
-.ctrl button.liked { border-color: #ff7597; color: #ff7597; }
 
 /* ---- bottom sheet (inside the card area, never over the stage) ---- */
 .sheet { background: var(--panel-2); border-radius: var(--radius); padding: 12px; margin-top: 4px; }

@@ -73,3 +73,14 @@ def client(tmp_path):
         c.headers.update({"Authorization": "Bearer test-token"})
         yield c
     config.settings.db_path, config.settings.app_token = old_db, old_token
+
+
+@pytest.fixture(autouse=True)
+def _no_real_machine_translation(monkeypatch):
+    """Tests never call Google/DeepL: the provider table raises unless a test overrides it."""
+    from pipeline import translate as TR
+
+    def blocked(*args, **kwargs):
+        raise TR.TranslateError("network disabled in tests")
+    monkeypatch.setitem(TR.PROVIDERS, "google", blocked)
+    monkeypatch.setitem(TR.PROVIDERS, "deepl", blocked)

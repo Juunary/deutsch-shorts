@@ -24,18 +24,51 @@ def test_get_subtitles(seeded_db):
 
 
 def test_feedback_and_decay(seeded_db):
-    apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="like"), EventIn(video_id=VIDEO_IDS[0], type="complete"),
+    apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="complete"), EventIn(video_id=VIDEO_IDS[0], type="watch", value=0.95),
                              EventIn(video_id=VIDEO_IDS[1], type="embed_error"), EventIn(video_id=VIDEO_IDS[1], type="no_dub")])
-    assert abs(seeded_db.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0] - 0.20) < 1e-9
-    assert abs(seeded_db.execute("SELECT score FROM channel_affinity WHERE channel_id=?", (CHANNEL_ID,)).fetchone()[0] - 0.25) < 1e-9
+    assert abs(seeded_db.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0] - 0.10) < 1e-9
+    assert abs(seeded_db.execute("SELECT score FROM channel_affinity WHERE channel_id=?", (CHANNEL_ID,)).fetchone()[0] - 0.10) < 1e-9
     assert tuple(seeded_db.execute("SELECT embeddable, has_dub FROM videos WHERE id=?", (VIDEO_IDS[1],)).fetchone()) == (0, 0)
     for _ in range(20):
-        apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="like")])
+        apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="complete")])
     assert seeded_db.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0] == 1.0  # clamped
     assert decay(seeded_db) == {"topics": 1, "channels": 1}
     assert abs(seeded_db.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0] - 0.98) < 1e-9
-    apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="too_easy")])
-    assert get_setting(seeded_db, "level_bias") == {"A2": 0.05}
+    apply_events(seeded_db, [EventIn(video_id=VIDEO_IDS[0], type="watch", value=0.5)])           # middling watch: no signal
+    assert abs(seeded_db.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0] - 0.98) < 1e-9
+    assert get_setting(seeded_db, "level_bias") is None
+
+
+def test_get_subtitles_fills_missing_translations(seeded_db, monkeypatch):
+    import pipeline.transcripts as T
+    from app.services import subtitles as SUB
+    with tx(seeded_db):
+        seeded_db.execute("DELETE FROM translations WHERE video_id=? AND lang='ko' AND idx > 0", (VIDEO_IDS[0],))
+    calls: list = []
+
+    def fake(texts, lang, provider=None, src="de"):
+        calls.append((tuple(texts), lang))
+        return "gtx", [f"G:{x}" for x in texts]
+    monkeypatch.setattr(T, "translate_batch", fake)
+    SUB._fill_backoff.clear()
+    out = SUB.get_subtitles(seeded_db, VIDEO_IDS[0], "ko")
+    assert [x.tr for x in out.segments] == ["[ko 0]", "G:wie geht es dir", "G:ich trinke kaffee"] and out.tr_source == "gtx"
+    assert calls == [(("wie geht es dir", "ich trinke kaffee"), "ko")]                   # only the missing lines, one batch
+    assert seeded_db.execute("SELECT count(*) FROM translations WHERE video_id=? AND lang='ko' AND source='gtx'", (VIDEO_IDS[0],)).fetchone()[0] == 2
+    assert SUB.get_subtitles(seeded_db, VIDEO_IDS[0], "ko").tr_source == "gtx" and len(calls) == 1   # cached in the DB
+
+    with tx(seeded_db):
+        seeded_db.execute("DELETE FROM translations WHERE video_id=? AND lang='en'", (VIDEO_IDS[1],))
+
+    def boom(texts, lang, provider=None, src="de"):
+        calls.append("boom")
+        raise T.TranslateError("down")
+    monkeypatch.setattr(T, "translate_batch", boom)
+    out = SUB.get_subtitles(seeded_db, VIDEO_IDS[1], "en")
+    assert [x.tr for x in out.segments] == [None, None, None] and out.tr_source is None      # failure is swallowed
+    SUB.get_subtitles(seeded_db, VIDEO_IDS[1], "en")
+    assert calls.count("boom") == 1                                                           # and not retried at once
+    assert SUB.get_subtitles(seeded_db, VIDEO_IDS[1], "en", fill=False).segments[0].tr is None
 
 
 def test_build_tsv_escapes_and_bolds():

@@ -1,34 +1,44 @@
-// The vertical feed: cards, the shared player, subtitle sync, events, word/correction sheets.
+// The vertical feed: a swipe pager under the shared player (like Shorts: swipe up = next, swipe down = previous),
+// subtitle sync, implicit feedback events, word/correction sheets.
 import * as player from './player.js';
 import { createSync } from './subtitles.js';
 import { buildGlossMap, lookupGloss, wordSheet } from './gloss.js';
 import { renderPanel, correctionEditor, dubSheet } from './modes.js';
 import { getFeed, getSubtitles, sendEvents, addVocab, postCorrection, putSettings } from './api.js';
 import { state, set, setSettings } from './state.js';
-import { el, toast, fmtDuration, debounce, longPress } from './util.js';
+import { el, toast, fmtDuration, longPress } from './util.js';
 import { t } from './i18n.ko.js';
+
+const COMMIT_RATIO = 0.18;      // drag this share of the panel height to change cards
+const COMMIT_VELOCITY = 0.5;    // or flick faster than this (px per ms)
+const SLOP = 8;                 // px of movement before a touch counts as a drag
+const ANIM_MS = 300;
+const KEEP_BEHIND = 25;         // cards kept behind the current one (swipe down to go back)
+const PREFETCH = 2;             // upcoming cards whose subtitles (and on-demand translation) are fetched early
 
 const cards = [];
 const loadedIds = [];
 const subsCache = new Map();
 let rail = null;
-let observer = null;
+let cur = -1;               // index of the active card in `cards`
 let active = null;
-let started = false;      // first user tap happened (sound allowed)
+let started = false;        // first user tap happened (sound allowed)
 let loading = false;
 let exhausted = false;
-let pendingLoad = null;   // card whose video could not be loaded outside a gesture
+let pendingLoad = null;     // card whose video could not be loaded outside a gesture
 let playCheckTimer = 0;
 let emptyNode = null;
+let animating = false;
+let drag = null;            // pointer gesture in progress
+let suppressClick = false;  // swallow the click that follows a mouse drag
+let settleTimer = 0;
 
 const sync = createSync({ getTime: player.getTime, state: player.state }, onIndex);
 
 // ---------------------------------------------------------------------------
 export async function initFeed(railEl) {
   rail = railEl;
-  observer = new IntersectionObserver(onIntersect, { root: rail, threshold: [0.6] });
-  rail.addEventListener('touchend', flushPending, { passive: true });
-  rail.addEventListener('click', flushPending);
+  wirePager();
   player.on('statechange', onPlayerState);
   player.on('error', onPlayerError);
   document.addEventListener('visibilitychange', () => { if (document.hidden) player.pause(); });
@@ -53,18 +63,17 @@ export function onSettingsChanged(prev) {
 
 // ---------------------------------------------------------------------------
 async function loadMore() {
-  if (loading || exhausted) return;
+  if (loading || exhausted) return false;
   loading = true;
+  let added = 0;
   try {
     const { items } = await getFeed(10, loadedIds.slice(-100));
-    let added = 0;
     for (const item of items) {
       if (loadedIds.includes(item.video_id)) continue;
       loadedIds.push(item.video_id);
       const card = createCard(item);
       cards.push(card);
       rail.append(card.node);
-      observer.observe(card.node);
       added++;
     }
     if (!added) exhausted = cards.length > 0;
@@ -73,30 +82,39 @@ async function loadMore() {
     if (cards.length && !player.isCreated()) {
       player.create(cards[0].item.video_id).catch((e) => console.warn('player create failed', e));
     }
+    layout();
+    if (cur < 0 && cards.length) show(0);
   } catch (e) {
     if (e.status !== 401) toast(t.offline);
   } finally {
     loading = false;
   }
+  return added > 0;
 }
 
 function showEmpty() {
   if (emptyNode) return;
-  emptyNode = el('div', { class: 'card' }, [el('div', { class: 'subs' }, [el('div', { class: 'empty', text: t.empty_feed })])]);
+  emptyNode = el('div', { class: 'card', style: 'transform:none' }, [el('div', { class: 'subs' }, [el('div', { class: 'empty', text: t.empty_feed })])]);
   rail.append(emptyNode);
 }
 
 function maybeLoadMore() {
-  const i = cards.indexOf(active);
-  if (i >= 0 && cards.length - i <= 3) loadMore();
+  if (cards.length - cur <= 3) loadMore();
+}
+
+function prefetch() {                     // warm the next cards (the server translates missing lines on demand)
+  for (let i = cur + 1; i <= cur + PREFETCH && i < cards.length; i++) {
+    const c = cards[i];
+    if (!c.subs && !c.subsPromise) ensureSubs(c);
+  }
 }
 
 // ---------------------------------------------------------------------------
 function createCard(item) {
   const card = {
     item, node: null, subsEl: null, sheetHost: null, ctrl: {},
-    subs: null, subsLoading: false, glossMap: new Map(),
-    idx: -1, revealed: false, showTr: false, maxTime: 0, playedSent: false, pairMode: false, visible: false,
+    subs: null, subsPromise: null, subsLoading: false, glossMap: new Map(),
+    idx: -1, revealed: false, showTr: false, maxTime: 0, playedSent: false, pairMode: false,
     get settings() { return state.settings; },
   };
   const head = el('header', { class: 'card-head' }, [
@@ -113,13 +131,11 @@ function createCard(item) {
   const ctrl = el('div', { class: 'ctrl' }, [
     card.ctrl.mode = el('button', { text: '', onclick: () => toggleMode() }),
     card.ctrl.speed = el('button', { text: '', onclick: () => toggleSpeed() }),
-    card.ctrl.like = el('button', { text: '♥ ' + t.like, onclick: (e) => { sendEvents([{ video_id: item.video_id, type: 'like', mode: state.settings.mode }]); e.currentTarget.classList.add('liked'); } }),
-    el('button', { text: t.skip + ' ›', onclick: () => { sendEvents([{ video_id: item.video_id, type: 'skip', mode: state.settings.mode }]); advance(); } }),
-    el('button', { text: '🔺 ' + t.too_hard_short, onclick: () => { sendEvents([{ video_id: item.video_id, type: 'too_hard' }]); toast(t.too_hard + ' 반영'); } }),
-    el('button', { text: '🔻 ' + t.too_easy_short, onclick: () => { sendEvents([{ video_id: item.video_id, type: 'too_easy' }]); toast(t.too_easy + ' 반영'); } }),
+    el('button', { text: t.next + ' ›', onclick: () => { sendEvents([{ video_id: item.video_id, type: 'skip', mode: state.settings.mode }]); go(1); } }),
   ]);
   const sheetHost = el('div', { class: 'sheet-host' });
   card.node = el('article', { class: 'card', dataset: { id: item.video_id } }, [head, title, subsEl, ctrl, sheetHost]);
+  card.node.hidden = true;
   card.subsEl = subsEl;
   card.sheetHost = sheetHost;
   subsEl.addEventListener('click', (e) => {
@@ -155,23 +171,146 @@ function toggleSpeed() {
 }
 
 // ---------------------------------------------------------------------------
-function onIntersect(entries) {
-  for (const en of entries) {
-    const card = cards.find((c) => c.node === en.target);
-    if (card) card.visible = en.isIntersecting && en.intersectionRatio >= 0.6;
-  }
-  scheduleActivate();
+// Pager: only the current card and its two neighbours are laid out; the cards follow the finger.
+function wirePager() {
+  rail.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove, { passive: true });
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerCancel);
+  rail.addEventListener('click', (e) => { if (suppressClick) { suppressClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
+  rail.addEventListener('wheel', onWheel, { passive: false });
+  document.addEventListener('keydown', onKey);
 }
-const scheduleActivate = debounce(() => {
-  const vis = cards.find((c) => c.visible);
-  if (vis && vis !== active) activate(vis);
-}, 150);
 
+function layout(dy = 0, animate = false) {
+  for (let i = 0; i < cards.length; i++) {
+    const node = cards[i].node;
+    const off = i - cur;
+    if (off < -1 || off > 1) { node.hidden = true; continue; }
+    node.hidden = false;
+    node.classList.toggle('anim', animate);
+    node.style.transform = `translateY(calc(${off * 100}% + ${Math.round(dy)}px))`;
+  }
+}
+
+function settle() {                       // animate back to rest, then drop the transition class
+  layout(0, true);
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => layout(), ANIM_MS + 20);
+}
+
+function show(index, animate = false) {
+  cur = index;
+  animating = animate;
+  layout(0, animate);
+  clearTimeout(settleTimer);
+  if (animate) settleTimer = setTimeout(() => { animating = false; layout(); prune(); }, ANIM_MS + 20);
+  else prune();
+  activate(cards[cur]);
+}
+
+function go(dir) {                        // +1 next, -1 previous; false when nothing to show yet
+  if (animating || !cards.length) return false;
+  const target = cur + dir;
+  if (target < 0) return false;
+  if (target >= cards.length) {
+    if (exhausted) toast(t.end_of_feed);
+    else loadMore().then((ok) => { if (ok && cur === target - 1 && !animating) show(target, true); });
+    return false;
+  }
+  show(target, true);
+  return true;
+}
+
+function prune() {                        // keep the DOM small: drop cards far behind the current one
+  const extra = cur - KEEP_BEHIND;
+  if (extra <= 0) return;
+  for (const c of cards.splice(0, extra)) c.node.remove();
+  cur -= extra;
+}
+
+function scrollableAncestor(node) {
+  let n = node instanceof Element ? node : null;
+  while (n && n !== rail) {
+    if (n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY)) return n;
+    n = n.parentElement;
+  }
+  return null;
+}
+
+function onPointerDown(e) {
+  if (!cards.length || animating) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.target.closest('input, textarea, select')) return;
+  drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, y: e.clientY, t: performance.now(), v: 0, mode: null, scrollEl: scrollableAncestor(e.target) };
+}
+
+function onPointerMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (!drag.mode) {
+    if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
+    if (Math.abs(dx) > Math.abs(dy)) { drag = null; return; }             // horizontal: not ours
+    const sc = drag.scrollEl;
+    const canScroll = sc && ((dy > 0 && sc.scrollTop > 0) || (dy < 0 && sc.scrollTop + sc.clientHeight < sc.scrollHeight - 1));
+    drag.mode = canScroll ? 'scroll' : 'page';
+  }
+  const now = performance.now();
+  const step = e.clientY - drag.y;
+  drag.v = 0.6 * drag.v + 0.4 * (step / Math.max(1, now - drag.t));
+  drag.y = e.clientY; drag.t = now;
+  if (drag.mode === 'scroll') { drag.scrollEl.scrollTop -= step; return; }
+  const atEnd = (dy < 0 && cur >= cards.length - 1) || (dy > 0 && cur <= 0);
+  layout(atEnd ? dy * 0.3 : dy);                                          // rubber band at both ends
+}
+
+function onPointerUp(e) {
+  if (!drag || e.pointerId !== drag.id) { flushPending(); return; }
+  const d = drag; drag = null;
+  if (!d.mode) { flushPending(); return; }                                // a tap: let the click through
+  if (e.pointerType === 'mouse') { suppressClick = true; setTimeout(() => { suppressClick = false; }, 50); }
+  if (d.mode !== 'page') return;
+  const dy = e.clientY - d.y0;
+  const h = rail.clientHeight || 1;
+  const flick = Math.abs(d.v) > COMMIT_VELOCITY && Math.sign(d.v) === Math.sign(dy);
+  if ((Math.abs(dy) > h * COMMIT_RATIO || flick) && go(dy < 0 ? 1 : -1)) return;
+  settle();
+}
+
+function onPointerCancel(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag; drag = null;
+  if (d.mode === 'page') settle();
+}
+
+let wheelAcc = 0, wheelLast = 0, wheelLock = 0;
+function onWheel(e) {                     // desktop: one burst of wheel notches = one card
+  e.preventDefault();
+  const now = performance.now();
+  if (now - wheelLast > 250) wheelAcc = 0;
+  wheelLast = now;
+  wheelAcc += e.deltaY;
+  if (now < wheelLock || Math.abs(wheelAcc) < 80) return;
+  wheelLock = now + 500;
+  const dir = wheelAcc > 0 ? 1 : -1;
+  wheelAcc = 0;
+  go(dir);
+}
+
+function onKey(e) {
+  if (!rail || rail.closest('section').hidden) return;
+  if (e.target.closest && e.target.closest('input, textarea')) return;
+  if (['ArrowDown', 'PageDown', 'j'].includes(e.key)) { e.preventDefault(); go(1); }
+  else if (['ArrowUp', 'PageUp', 'k'].includes(e.key)) { e.preventDefault(); go(-1); }
+}
+
+// ---------------------------------------------------------------------------
 async function activate(card) {
-  if (active) deactivate(active);
+  if (active && active !== card) deactivate(active);
   active = card;
   card.maxTime = 0; card.playedSent = false; card.idx = -1; card.revealed = false; card.showTr = false; card.pairMode = false;
   card.sheetHost.innerHTML = '';
+  if (card.subs && card.subs.error) card.subs = null;                     // retry a failed fetch
   if (!started) {
     if (player.isCreated()) player.cue(card.item.video_id);
     renderStart(card);
@@ -179,12 +318,13 @@ async function activate(card) {
     startPlayback(card);
   }
   sendEvents([{ video_id: card.item.video_id, type: 'impression', mode: state.settings.mode }]);
+  maybeLoadMore();
   await ensureSubs(card);
   if (active !== card) return;
   renderPanel(card, card.subsEl);
   if (started) sync.start(card.subs.segments);
-  if (!started) renderStart(card);
-  maybeLoadMore();
+  else renderStart(card);
+  prefetch();
 }
 
 function deactivate(card) {
@@ -199,9 +339,10 @@ function deactivate(card) {
 
 function renderStart(card) {
   if (card.subsEl.querySelector('.start-btn')) return;
+  const hint = el('div', { class: 'hint', text: t.swipe_hint });
   const btn = el('button', { class: 'start-btn', text: t.tap_to_start, onclick: () => {
     started = true;
-    btn.remove();
+    btn.remove(); hint.remove();
     if (!player.isCreated()) {
       player.create(card.item.video_id).then(() => player.play());
     } else {
@@ -212,7 +353,7 @@ function renderStart(card) {
     armPlayCheck(card);
     if (card.subs) sync.start(card.subs.segments);
   } });
-  card.subsEl.prepend(btn);
+  card.subsEl.prepend(btn, hint);
 }
 
 function startPlayback(card) {
@@ -221,12 +362,10 @@ function startPlayback(card) {
   armPlayCheck(card);
 }
 
-function flushPending() {          // runs inside a user gesture (touchend/click on the rail)
+function flushPending() {                 // runs inside a user gesture (pointerup on the rail)
   if (pendingLoad && pendingLoad === active) {
     const card = pendingLoad; pendingLoad = null;
     if (player.load(card.item.video_id)) armPlayCheck(card);
-  } else if (started && active && player.state() !== player.STATE.PLAYING && player.state() !== player.STATE.BUFFERING && !active.pairMode) {
-    // nothing
   }
 }
 
@@ -256,7 +395,7 @@ function onPlayerState(e) {
   if (s === player.STATE.ENDED && !active.pairMode) {
     active.maxTime = Math.max(active.maxTime, player.getDuration() || 0);
     sendEvents([{ video_id: active.item.video_id, type: 'complete', value: 1, mode: state.settings.mode }]);
-    advance();
+    go(1);
   }
   if (s === player.STATE.PAUSED || s === player.STATE.BUFFERING) active.maxTime = Math.max(active.maxTime, player.getTime() || 0);
 }
@@ -266,7 +405,7 @@ function onPlayerError(e) {
   console.warn('player error', e.detail);
   sendEvents([{ video_id: active.pairMode ? active.item.pair_video_id : active.item.video_id, type: 'embed_error', value: e.detail }]);
   toast(t.error + ` (YouTube ${e.detail})`);
-  setTimeout(advance, 800);
+  setTimeout(() => go(1), 800);
 }
 
 function onIndex(idx) {
@@ -277,33 +416,30 @@ function onIndex(idx) {
   renderPanel(active, active.subsEl);
 }
 
-function advance() {
-  const i = cards.indexOf(active);
-  const next = cards[i + 1];
-  if (next) next.node.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  else loadMore();
-}
-
 // ---------------------------------------------------------------------------
-async function ensureSubs(card) {
-  if (card.subs) return card.subs;
-  const key = `${card.item.video_id}:${state.settings.subtitle_lang}`;
+function ensureSubs(card) {
+  if (card.subs) return Promise.resolve(card.subs);
+  if (card.subsPromise) return card.subsPromise;
+  const lang = state.settings.subtitle_lang;
+  const key = `${card.item.video_id}:${lang}`;
   if (subsCache.has(key)) {
     card.subs = subsCache.get(key);
-  } else {
-    card.subsLoading = true;
-    renderPanel(card, card.subsEl);
-    try {
-      card.subs = await getSubtitles(card.item.video_id, state.settings.subtitle_lang);
-    } catch (e) {
-      card.subs = { segments: [], glosses: [], tr_source: null };
-      if (e.status !== 401) toast(t.offline);
-    }
-    card.subsLoading = false;
-    subsCache.set(key, card.subs);
+    card.glossMap = buildGlossMap(card.subs.glosses);
+    return Promise.resolve(card.subs);
   }
-  card.glossMap = buildGlossMap(card.subs.glosses);
-  return card.subs;
+  card.subsLoading = true;
+  renderPanel(card, card.subsEl);
+  card.subsPromise = getSubtitles(card.item.video_id, lang)
+    .then((subs) => { subsCache.set(key, subs); return subs; })
+    .catch((e) => { if (e.status !== 401 && card === active) toast(t.offline); return { segments: [], glosses: [], tr_source: null, error: true }; })
+    .then((subs) => {
+      card.subsLoading = false; card.subsPromise = null;
+      if (state.settings.subtitle_lang !== lang) return subs;              // language changed meanwhile: ignore
+      card.subs = subs;
+      card.glossMap = buildGlossMap(subs.glosses);
+      return subs;
+    });
+  return card.subsPromise;
 }
 
 function openWordSheet(card, word) {

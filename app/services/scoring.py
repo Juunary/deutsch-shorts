@@ -30,15 +30,13 @@ class Ctx:
     channel_aff: dict[str, float] = field(default_factory=dict)
     prefer_dub: bool = False
     llm_on: bool = False
-    level_bias: dict[str, float] = field(default_factory=dict)
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---- components -------------------------------------------------------------
 def level_fit(cefr: str | None, ctx: Ctx) -> float:
     bands = BANDS_STRETCH if ctx.stretch else BANDS_NORMAL
-    base = bands.get(cefr or "", 0.3)
-    return clamp(base + float(ctx.level_bias.get(cefr or "", 0.0)), 0.0, 1.0)
+    return bands.get(cefr or "", 0.3)
 
 
 def topic_score(topics: Iterable[str], user_topics: dict[str, float]) -> float:
@@ -49,9 +47,6 @@ def topic_score(topics: Iterable[str], user_topics: dict[str, float]) -> float:
 
 
 def novelty(v: dict[str, Any], ctx: Ctx) -> float:
-    liked_at = v.get("liked_at")
-    if liked_at is not None:
-        return 0.3 if (ctx.now - liked_at) > timedelta(days=30) else 0.0
     completed_at = v.get("completed_at")
     if completed_at is not None and (ctx.now - completed_at) <= timedelta(days=60):
         return 0.0
@@ -114,10 +109,10 @@ def rerank_diverse(scored: list[tuple[float, dict[str, Any]]], n: int, rng: rand
 
 # ---- assembly ---------------------------------------------------------------
 def _event_state(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
-    """Per video: last impression, last/most watched, completed, liked."""
+    """Per video: last impression, last/most watched, completed."""
     state: dict[str, dict[str, Any]] = {}
     for r in conn.execute("SELECT video_id, type, MAX(created_at) AS last_at, MAX(value) AS max_value "
-                          "FROM events WHERE type IN ('impression','watch','complete','like') GROUP BY video_id, type"):
+                          "FROM events WHERE type IN ('impression','watch','complete') GROUP BY video_id, type"):
         st = state.setdefault(r["video_id"], {})
         last = parse_ts(r["last_at"])
         if r["type"] == "impression":
@@ -127,8 +122,6 @@ def _event_state(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
             st["watched_max"] = float(r["max_value"]) if r["max_value"] is not None else None
         elif r["type"] == "complete":
             st["completed_at"] = last
-        elif r["type"] == "like":
-            st["liked_at"] = last
     return state
 
 
@@ -138,10 +131,8 @@ def load_context(conn: sqlite3.Connection) -> Ctx:
                    for r in conn.execute("SELECT topic, base, learned FROM topic_affinity")}
     channel_aff = {r["channel_id"]: float(r["score"]) for r in conn.execute("SELECT channel_id, score FROM channel_affinity")}
     from app.config import settings as cfg
-    level_bias = s.get("level_bias") or {}
     return Ctx(stretch=bool(s.get("stretch")), user_topics=user_topics, channel_aff=channel_aff,
-               prefer_dub=bool(s.get("prefer_dub")), llm_on=bool(cfg.llm_enabled and s.get("llm_enabled", True)),
-               level_bias={k: float(v) for k, v in level_bias.items()} if isinstance(level_bias, dict) else {})
+               prefer_dub=bool(s.get("prefer_dub")), llm_on=bool(cfg.llm_enabled and s.get("llm_enabled", True)))
 
 
 def candidates(conn: sqlite3.Connection, exclude: set[str], n: int) -> list[dict[str, Any]]:

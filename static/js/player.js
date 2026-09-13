@@ -4,6 +4,7 @@ let player = null;
 let apiReady = null;
 let currentId = null;
 let creating = null;
+let isReady = false;      // the YT.Player object gets its methods only after onReady
 
 export const STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -31,7 +32,7 @@ export async function create(videoId) {
       host: 'https://www.youtube-nocookie.com',
       playerVars: { playsinline: 1, rel: 0, cc_load_policy: 0, enablejsapi: 1, controls: 1, origin: location.origin },
       events: {
-        onReady: () => { bus.dispatchEvent(new CustomEvent('ready')); resolve(player); },
+        onReady: () => { isReady = true; bus.dispatchEvent(new CustomEvent('ready')); resolve(player); },
         onStateChange: (e) => bus.dispatchEvent(new CustomEvent('statechange', { detail: e.data })),
         onError: (e) => bus.dispatchEvent(new CustomEvent('error', { detail: e.data })),
       },
@@ -40,19 +41,19 @@ export async function create(videoId) {
   return creating;
 }
 
-export function isCreated() { return !!player; }
+export function isCreated() { return !!player && isReady; }
 export function current() { return currentId; }
 
 export function load(videoId) {
-  if (!player) return false;
+  if (!player || !isReady) return false;
   currentId = videoId;
-  player.loadVideoById(videoId);
+  try { player.loadVideoById(videoId); } catch { return false; }
   return true;
 }
 export function cue(videoId) {
-  if (!player) return false;
+  if (!player || !isReady) return false;
   currentId = videoId;
-  player.cueVideoById(videoId);
+  try { player.cueVideoById(videoId); } catch { return false; }
   return true;
 }
 export function play() { try { player && player.playVideo(); } catch { /* not ready */ } }

@@ -53,14 +53,13 @@ def test_feed_and_subtitles(client):
 
 def test_events_feedback_and_corrections(client):
     conn = _seed_client_db()
-    r = client.post("/api/events", json=[{"video_id": VIDEO_IDS[0], "type": "like"}, {"video_id": VIDEO_IDS[0], "type": "watch", "value": 0.1}])
+    r = client.post("/api/events", json=[{"video_id": VIDEO_IDS[0], "type": "complete"}, {"video_id": VIDEO_IDS[0], "type": "watch", "value": 0.1}])
     assert r.json() == {"ok": True, "applied": 2}
     topic = conn.execute("SELECT learned FROM topic_affinity WHERE topic='daily_life'").fetchone()[0]
     chan = conn.execute("SELECT score FROM channel_affinity WHERE channel_id=?", (CHANNEL_ID,)).fetchone()[0]
-    assert abs(topic - 0.10) < 1e-9 and abs(chan - 0.10) < 1e-9  # like (+0.15/+0.2) then skip-equivalent (-0.05/-0.1)
-    client.post("/api/events", json=[{"video_id": VIDEO_IDS[0], "type": "too_hard"}])
-    bias = json.loads(conn.execute("SELECT value_json FROM settings WHERE key='level_bias'").fetchone()[0])
-    assert bias == {"A2": -0.05}
+    assert abs(topic - 0.0) < 1e-9 and abs(chan + 0.05) < 1e-9  # complete (+0.05/+0.05) then skip-equivalent (-0.05/-0.10)
+    for gone in ("like", "too_hard", "too_easy"):                # removed features are rejected, not silently stored
+        assert client.post("/api/events", json=[{"video_id": VIDEO_IDS[0], "type": gone}]).status_code == 422
 
     r = client.post("/api/corrections", json={"video_id": VIDEO_IDS[0], "seg_idx": 0, "kind": "translation", "before": {"text": "[ko 0]"}, "after": {"lang": "ko", "text": "좋은 아침"}})
     assert r.json()["ok"] and r.json()["id"] >= 1

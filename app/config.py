@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     llm_daily_cap: int = 80
     enrich_workers: int = 1        # parallel enrichment requests (vLLM handles ~8; keep 1 for Claude/llama-server)
 
-    # Machine-translation fallback when no model output exists: auto | deepl | gtx | none
-    mt_provider: str = "auto"
+    # Machine translation for lines the model has not covered: google (default, free web endpoint, no key;
+    # aliases gtx/auto) | deepl (needs DEEPL_API_KEY) | none. Also used on demand by the subtitles API.
+    mt_provider: str = "google"
     deepl_api_key: str = ""
 
     # transcript fetching pace (seconds between YouTube requests); YouTube blocks bursts from one IP

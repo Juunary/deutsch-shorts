@@ -19,7 +19,7 @@ from typing import Any, Callable
 from app.config import settings
 from app.db import get_setting, set_setting, tx, utcnow
 
-from .translate import TranslateError, translate_batch
+from .translate import RateLimited, TranslateError, cooldown_until, pick_provider, set_cooldown, translate_batch
 
 log = logging.getLogger("pipeline")
 
@@ -174,20 +174,31 @@ def store_transcript(conn: sqlite3.Connection, video_id: str, result: dict[str, 
 
 
 def translate_video(conn: sqlite3.Connection, video_id: str, langs: tuple[str, ...] = ("ko", "en")) -> dict[str, str]:
-    """Fill machine translations for languages that have no translation rows yet."""
-    texts = [r[0] for r in conn.execute("SELECT text_de FROM segments WHERE video_id=? ORDER BY idx", (video_id,))]
+    """Machine-translate the segments that have no row in each language yet (segments the model already
+    covered are left alone). Returns {lang: source tag} for the languages touched. Raises TranslateError;
+    a RateLimited error also records the shared MT cooldown."""
     done: dict[str, str] = {}
-    if not texts:
+    if pick_provider() is None:
         return done
+    until = cooldown_until(conn)
+    if until:
+        raise RateLimited(f"machine translation cooling down until {until}")
     for lang in langs:
-        exists = conn.execute("SELECT 1 FROM translations WHERE video_id=? AND lang=? LIMIT 1", (video_id, lang)).fetchone()
-        if exists:
+        rows = conn.execute(
+            "SELECT s.idx, s.text_de FROM segments s WHERE s.video_id=? AND NOT EXISTS ("
+            "SELECT 1 FROM translations t WHERE t.video_id=s.video_id AND t.idx=s.idx AND t.lang=?) ORDER BY s.idx",
+            (video_id, lang)).fetchall()
+        if not rows:
             continue
-        provider, out = translate_batch(texts, lang)
+        try:
+            source, out = translate_batch([r[1] for r in rows], lang)
+        except RateLimited:
+            set_cooldown(conn)
+            raise
         with tx(conn):
             conn.executemany("INSERT OR REPLACE INTO translations(video_id, idx, lang, source, text) VALUES(?,?,?,?,?)",
-                             [(video_id, i, lang, provider, t) for i, t in enumerate(out) if t])
-        done[lang] = provider
+                             [(video_id, r[0], lang, source, text) for r, text in zip(rows, out) if text])
+        done[lang] = source
     return done
 
 
@@ -248,6 +259,9 @@ def run_transcripts(conn: sqlite3.Connection, limit: int = 30, video_id: str | N
                 try:
                     done = translate_video(conn, vid)
                     summary["translated"] += len(done)
+                except RateLimited as e:
+                    translate = False
+                    log.warning("translate %s: %s (no more translation this run)", vid, e)
                 except TranslateError as e:
                     log.warning("translate %s: %s", vid, e)
             with tx(conn):
@@ -280,21 +294,28 @@ def run_transcripts(conn: sqlite3.Connection, limit: int = 30, video_id: str | N
 
 
 def run_translate(conn: sqlite3.Connection, limit: int = 200) -> dict[str, Any]:
-    """Fill missing machine translations for videos with transcripts (separate from the YouTube loop)."""
+    """Fill missing machine translations (any segment without a ko/en row) for videos with transcripts."""
     summary: dict[str, Any] = {"videos": 0, "translated": 0, "errors": 0}
+    if pick_provider() is None:
+        summary["skipped"] = "MT_PROVIDER=none"
+        return summary
     ids = [r[0] for r in conn.execute(
-        "SELECT v.id FROM videos v WHERE v.transcript_status='ok' AND ("
-        "NOT EXISTS (SELECT 1 FROM translations t WHERE t.video_id=v.id AND t.lang='ko') OR "
-        "NOT EXISTS (SELECT 1 FROM translations t WHERE t.video_id=v.id AND t.lang='en')) "
+        "SELECT v.id FROM videos v WHERE v.transcript_status='ok' AND EXISTS ("
+        "SELECT 1 FROM segments s WHERE s.video_id=v.id AND ("
+        "NOT EXISTS (SELECT 1 FROM translations t WHERE t.video_id=s.video_id AND t.idx=s.idx AND t.lang='ko') OR "
+        "NOT EXISTS (SELECT 1 FROM translations t WHERE t.video_id=s.video_id AND t.idx=s.idx AND t.lang='en'))) "
         "ORDER BY v.published_at DESC LIMIT ?", (limit,))]
     for vid in ids:
         try:
             done = translate_video(conn, vid)
+        except RateLimited as e:
+            summary["errors"] += 1
+            summary["rate_limited"] = str(e)
+            log.warning("translate %s: %s", vid, e)
+            break
         except TranslateError as e:
             summary["errors"] += 1
             log.warning("translate %s: %s", vid, e)
-            if "429" in str(e) or "rate" in str(e).lower():
-                break
             continue
         summary["videos"] += 1
         summary["translated"] += len(done)

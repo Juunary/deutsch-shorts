@@ -4,7 +4,7 @@
 
 Stages: seed | ingest | backfill | transcripts | translate | heuristics | enrich | pair | decay | all | stats
         export (content tables -> data/content.jsonl) | import --file X | pull (scp the server export + import)
-`all` = seed -> ingest (RSS when no API key) -> transcripts -> heuristics -> enrich -> pair -> decay.
+`all` = seed -> ingest (RSS when no API key) -> transcripts -> translate -> heuristics -> enrich -> pair -> decay.
 Every stage writes a pipeline_runs row. Logs go to stdout and logs/pipeline-YYYYMMDD.log.
 """
 from __future__ import annotations
@@ -150,8 +150,12 @@ def stage_import(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str
 
 
 def stage_pull(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
+    """scp + import the server export, then machine-translate imported videos the model has not covered yet."""
     from .sync import pull
-    return pull(conn, remote=args.remote, remote_path=args.remote_path)
+    from .transcripts import run_translate
+    counts: dict[str, Any] = pull(conn, remote=args.remote, remote_path=args.remote_path)
+    counts["translate"] = run_translate(conn, limit=args.limit or 200)
+    return counts
 
 
 def stage_stats(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any]:
@@ -179,7 +183,7 @@ STAGE_FUNCS = {
     "translate": stage_translate, "heuristics": stage_heuristics, "enrich": stage_enrich, "pair": stage_pair,
     "decay": stage_decay, "stats": stage_stats, "export": stage_export, "import": stage_import, "pull": stage_pull,
 }
-ALL_ORDER = ["seed", "ingest", "transcripts", "heuristics", "enrich", "pair", "decay"]
+ALL_ORDER = ["seed", "ingest", "transcripts", "translate", "heuristics", "enrich", "pair", "decay"]
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -113,7 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_corrections_exported ON corrections(exported_at);
 CREATE TABLE IF NOT EXISTS events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   video_id   TEXT NOT NULL,
-  type       TEXT NOT NULL,   -- impression|play|watch|complete|like|skip|save_word|embed_error|too_hard|too_easy|no_dub
+  type       TEXT NOT NULL,   -- impression|play|watch|complete|skip|save_word|embed_error|no_dub
   value      REAL,
   mode       TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))

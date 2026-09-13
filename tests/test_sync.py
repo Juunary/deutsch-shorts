@@ -28,6 +28,8 @@ def test_export_import_roundtrip_keeps_user_state(seeded_db, tmp_path):
         target.execute("INSERT INTO segments(video_id, idx, start_ms, end_ms, text_de) VALUES(?,?,?,?,?)", (VIDEO_IDS[0], 0, 0, 1000, "old"))
         target.execute("INSERT INTO segments(video_id, idx, start_ms, end_ms, text_de) VALUES(?,?,?,?,?)", (VIDEO_IDS[0], 9, 0, 1000, "stale"))
         target.execute("INSERT INTO translations(video_id, idx, lang, source, text) VALUES(?,?,?,?,?)", (VIDEO_IDS[0], 0, "ko", "user", "내 번역"))
+        target.execute("INSERT INTO translations(video_id, idx, lang, source, text) VALUES(?,?,?,?,?)", (VIDEO_IDS[0], 1, "ko", "gtx", "구글 번역"))
+        target.execute("INSERT INTO translations(video_id, idx, lang, source, text) VALUES(?,?,?,?,?)", (VIDEO_IDS[0], 1, "ko", "deepl", "stale"))
         target.execute("INSERT INTO corrections(video_id, seg_idx, kind, after_json) VALUES(?,?,?,?)",
                        (VIDEO_IDS[0], 0, "gloss", json.dumps({"surface": "Kaffee", "wrong": True})))
     c = import_content(target, path)
@@ -38,7 +40,8 @@ def test_export_import_roundtrip_keeps_user_state(seeded_db, tmp_path):
     assert tuple(row) == (0, "ok", "ok", "B1", "user")                             # embed error + user CEFR kept, statuses upgraded
     assert target.execute("SELECT count(*) FROM segments WHERE video_id=?", (VIDEO_IDS[0],)).fetchone()[0] == 3   # stale rows replaced
     assert target.execute("SELECT text FROM translations WHERE video_id=? AND idx=0 AND source='user'", (VIDEO_IDS[0],)).fetchone()[0] == "내 번역"
-    assert target.execute("SELECT count(*) FROM translations WHERE video_id=? AND source='deepl'", (VIDEO_IDS[0],)).fetchone()[0] == 6
+    assert target.execute("SELECT count(*) FROM translations WHERE video_id=? AND source='deepl'", (VIDEO_IDS[0],)).fetchone()[0] == 6   # stale deepl row replaced
+    assert target.execute("SELECT text FROM translations WHERE video_id=? AND idx=1 AND source='gtx'", (VIDEO_IDS[0],)).fetchone()[0] == "구글 번역"  # on-demand row kept
     assert [r[0] for r in target.execute("SELECT surface_lc FROM glosses WHERE video_id=?", (VIDEO_IDS[0],))] == ["morgen"]   # removed gloss stays removed
     assert target.execute("SELECT count(*) FROM enrichments").fetchone()[0] == 1
     # idempotent

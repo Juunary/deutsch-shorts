@@ -6,8 +6,10 @@
 - **듣기 모드**: 독일어 음성 + 한국어(또는 영어) 자막만. 독일어 원문은 탭해야 보임.
 - **읽기 모드**: 독일어 자막을 크게, 모르는 단어는 루비(뜻) 표시, 문장 탭 → 번역.
 - 단어 탭 → 뜻/사전 → 단어장 저장 → Anki TSV 내보내기. 번역 길게 누르기 → 고치기(골드셋·재학습 데이터).
-- 관심 주제·좋아요/스킵·난이도 피드백으로 피드 순서가 바뀜. 더빙 추정 영상엔 배지(⚙ → 오디오 트랙 안내).
-- 자막 보강(번역·단어 뜻·CEFR·주제)은 **직접 학습한 소형 모델**(`ml/`)이 담당. 준비 전엔 기계번역(DeepL/gtx) 폴백.
+- 쇼츠처럼 **스와이프**(위 = 다음, 아래 = 이전)로 넘김. 좋아요·난이도 버튼은 없고, 관심 주제와 얼마나 봤는지(완주/스킵)로만 순서가 바뀜.
+  더빙 추정 영상엔 배지(⚙ → 오디오 트랙 안내).
+- 자막 보강(번역·단어 뜻·CEFR·주제)은 **직접 학습한 소형 모델**(`ml/`)이 담당. 모델이 아직 안 본 영상은 **Google 번역**(무료 웹
+  엔드포인트, 키 없음)으로 즉시 채워서 번역 자막이 항상 나온다.
 
 계획 전문: `C:\Users\harry\.claude\plans\floofy-beaming-shell.md`
 
@@ -33,10 +35,11 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
 
 - **YouTube Data API 키**: Google Cloud 콘솔 → 프로젝트 → "YouTube Data API v3" 사용 설정 → 사용자 인증 정보 → API 키.
   키가 없으면 RSS(채널당 최신 15개)로만 수집한다.
-- **DeepL 키(선택)**: https://www.deepl.com/pro-api 무료 플랜(월 50만 자). 없으면 gtx(무키, 불안정) 사용.
+- **번역**: 기본은 Google 번역 웹 엔드포인트(`MT_PROVIDER=google`, 키 없음). 영상당 언어별 1요청으로 묶어 보내고, 429가 나면 30분 쉰다.
+  DeepL은 `MT_PROVIDER=deepl` + `DEEPL_API_KEY`일 때만 쓴다.
 - **폰 접속**: `scripts\tailscale-serve.ps1` → `https://<pc>.<tailnet>.ts.net/#token=<APP_TOKEN>` (첫 접속 시 토큰 저장).
   같은 Wi-Fi에서는 `run-server.ps1 -Lan` 후 `http://<pc-ip>:8000` (PWA 설치는 HTTPS 필요).
-- **무인 운영**: `scripts\install-tasks.ps1` → 서버(부팅 시), 파이프라인(매일 04:30), 자막 수집(매시 8편), LLM 서버(모델 있을 때).
+- **무인 운영**: `scripts\install-tasks.ps1` → 서버(로그온 시), 파이프라인(매일 04:30), 랩 서버 동기화 `pull`(매시), LLM 서버(모델 있을 때).
 - **iPhone**: Safari 탭으로 사용(홈 화면 추가 시 유튜브 임베드가 막히는 문제 보고됨). **Android**: 설정 → 홈 화면에 추가.
 
 ## 테스트
@@ -53,7 +56,9 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
 - **Data API 검색은 하루 100회** → 검색 미사용. 채널 ID `UC…`→`UUSH…` 쇼츠 재생목록을 1 unit씩 열거. RSS(`feeds/videos.xml?playlist_id=UUSH…`)로 키 없이도 최신 15개 확인 가능.
 - **자막 수집은 느리게**: `youtube-transcript-api`로 독일어 자동 자막을 받을 수 있지만, 이 회선(독일 주거용)에서 빠른 요청 약 12회 후
   `IpBlocked`(잠시 후 RSS도 404). 영상당 20–40초 간격, 시간당 8편, 차단 시 2h→4h→… 쿨다운(`settings.transcript_cooldown_until`).
-- **유튜브 서버측 번역은 영어만** 제공(한국어 없음) → 한국어는 DeepL/gtx 폴백, 궁극적으로 로컬 모델.
+- **유튜브 서버측 번역은 영어만** 제공(한국어 없음) → 한국어·영어는 Google 번역 웹 엔드포인트(`translate_a/t`, 세그먼트를 한 POST에 묶음)로
+  채우고 모델 번역이 생기면 그것을 우선. 세그먼트별 개별 요청은 이 회선에서 곧 429(‘Sorry’ 페이지)가 났으므로 반드시 영상 단위로 묶고,
+  429 후엔 30분 쿨다운(`settings.mt_cooldown_until`, 파이프라인과 앱 공용). 앱은 자막 요청 시 빠진 줄을 즉석에서 번역해 저장한다.
 - **유튜브 페이지는 EU 동의 페이지**로 리다이렉트됨 → 핸들 해석 시 `SOCS`/`CONSENT` 쿠키 필요(`pipeline/ingest.py`).
 - **Windows Smart App Control 켜짐**: 서명 안 된 컴파일 확장(`regex` 등)이 차단됨 → 순수 파이썬 패키지만 사용, 로컬 추론은
   llama.cpp 프리빌드가 막히면 **Ollama(서명됨)** 사용(`scripts\llama-server.ps1 -Ollama`).
@@ -67,7 +72,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
 ## 파이프라인 단계
 
 `seed` 채널 시드(핸들→ID) · `ingest` 쇼츠 발견(API 또는 RSS) · `backfill` RSS 영상 상세 채우기 · `transcripts` 자막(느리게) ·
-`translate` 기계번역 폴백 · `heuristics` 어휘 커버리지/속도/CEFR · `enrich` 모델 보강 · `pair` 영어 짝 매칭 · `decay` 선호도 감쇠 ·
+`translate` Google 번역(모델이 안 본 줄) · `heuristics` 어휘 커버리지/속도/CEFR · `enrich` 모델 보강 · `pair` 영어 짝 매칭 · `decay` 선호도 감쇠 ·
 `all` 순차 실행 · `stats` 현황.
 
 ## 자체 모델

@@ -10,13 +10,11 @@ from tests.conftest import VIDEO_IDS
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
 
 
-def test_level_fit_bands_and_bias():
+def test_level_fit_bands():
     ctx = S.Ctx(now=NOW)
     assert S.level_fit("A1", ctx) == 1.0 and S.level_fit("B1", ctx) == 0.3 and S.level_fit("C1", ctx) == 0.0
     ctx.stretch = True
     assert S.level_fit("A1", ctx) == 0.6 and S.level_fit("B1", ctx) == 0.9
-    ctx.level_bias = {"B1": -0.05}
-    assert abs(S.level_fit("B1", ctx) - 0.85) < 1e-9
     assert S.level_fit(None, ctx) == 0.3
 
 
@@ -28,8 +26,6 @@ def test_novelty_states():
     assert S.novelty({"watched_at": NOW - timedelta(days=1), "watched_max": 0.7}, ctx) == 0.0
     assert S.novelty({"completed_at": NOW - timedelta(days=10)}, ctx) == 0.0
     assert S.novelty({"completed_at": NOW - timedelta(days=90)}, ctx) == 1.0
-    assert S.novelty({"liked_at": NOW - timedelta(days=5)}, ctx) == 0.0
-    assert S.novelty({"liked_at": NOW - timedelta(days=40)}, ctx) == 0.3
 
 
 def test_recency_and_topic():

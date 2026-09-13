@@ -1,5 +1,6 @@
-// App-shell service worker. Caches ONLY the shell; /api/* and cross-origin (YouTube) are never touched.
-const VERSION = 'v1';
+// App-shell service worker. Caches ONLY the shell (network-first, cache as offline fallback);
+// /api/* and cross-origin (YouTube) are never touched.
+const VERSION = 'v3';
 const CACHE = `deutsch-shorts-${VERSION}`;
 const SHELL = [
   '/',
@@ -29,12 +30,12 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;          // YouTube etc. pass through untouched
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/spikes/')) return;
   event.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+    fetch(req).then((res) => {                              // online: always the fresh file, refresh the cache
       if (res.ok && SHELL.includes(url.pathname)) {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));
       }
       return res;
-    }).catch(() => hit))
+    }).catch(() => caches.match(req))                       // offline: the cached shell
   );
 });
