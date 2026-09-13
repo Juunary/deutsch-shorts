@@ -39,7 +39,8 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
   DeepL은 `MT_PROVIDER=deepl` + `DEEPL_API_KEY`일 때만 쓴다.
 - **폰 접속**: `scripts\tailscale-serve.ps1` → `https://<pc>.<tailnet>.ts.net/#token=<APP_TOKEN>` (첫 접속 시 토큰 저장).
   같은 Wi-Fi에서는 `run-server.ps1 -Lan` 후 `http://<pc-ip>:8000` (PWA 설치는 HTTPS 필요).
-- **무인 운영**: `scripts\install-tasks.ps1` → 서버(로그온 시), 파이프라인(매일 04:30), 랩 서버 동기화 `pull`(매시), LLM 서버(모델 있을 때).
+- **무인 운영**: `scripts\install-tasks.ps1` → 서버(로그온 시), 파이프라인(매일 04:30), 랩 서버 동기화 `pull`(매시 정각), 자막 수집(매시 :30, 6편),
+  LLM 서버(모델 있을 때).
 - **iPhone**: Safari 탭으로 사용(홈 화면 추가 시 유튜브 임베드가 막히는 문제 보고됨). **Android**: 설정 → 홈 화면에 추가.
 
 ## 테스트
@@ -54,8 +55,11 @@ powershell -ExecutionPolicy Bypass -File scripts\run-server.ps1  # http://127.0.
 - **유튜브 API 약관**: 플레이어 위 오버레이 금지 → 자막·버튼은 전부 플레이어 아래. 자동재생 플레이어 1개, 백그라운드 재생 금지,
   영상·오디오 다운로드 금지 → 자막은 텍스트만 수집. 카드마다 "YouTube에서 보기" 링크.
 - **Data API 검색은 하루 100회** → 검색 미사용. 채널 ID `UC…`→`UUSH…` 쇼츠 재생목록을 1 unit씩 열거. RSS(`feeds/videos.xml?playlist_id=UUSH…`)로 키 없이도 최신 15개 확인 가능.
-- **자막 수집은 느리게**: `youtube-transcript-api`로 독일어 자동 자막을 받을 수 있지만, 이 회선(독일 주거용)에서 빠른 요청 약 12회 후
-  `IpBlocked`(잠시 후 RSS도 404). 영상당 20–40초 간격, 시간당 8편, 차단 시 2h→4h→… 쿨다운(`settings.transcript_cooldown_until`).
+- **자막 수집은 느리게**: `youtube-transcript-api`로 독일어 자동 자막을 받을 수 있지만, 빠른 요청은 집 회선(독일 주거용)에서 약 12회,
+  랩 서버(한국 대학망)에서 약 32회 만에 `IpBlocked`. 한 번 막히면 **8시간 넘게 유지**되고(2h·4h·8h 뒤 재시도가 전부 첫 요청부터 거절됨)
+  재시도가 차단을 연장하는 듯하므로 애초에 막히지 않는 속도로만 돈다: PC는 매시 6편을 45–75초 간격, 서버는 회당 20편을 60–90초 간격,
+  차단 시 2h→4h→… 쿨다운(`settings.transcript_cooldown_until`). 요청 수 자체도 줄였다: 라이브러리가 매번 받는 워치 페이지(recaptcha
+  ‘sorry’ 벽이 나오는 HTML)를 건너뛰고 innertube `player` API(키 없이 응답) + 자막 파일만 요청한다(`pipeline/transcripts.py` `lean_fetcher`).
 - **유튜브 서버측 번역은 영어만** 제공(한국어 없음) → 한국어·영어는 Google 번역 웹 엔드포인트(`translate_a/t`, 세그먼트를 한 POST에 묶음)로
   채우고 모델 번역이 생기면 그것을 우선. 세그먼트별 개별 요청은 이 회선에서 곧 429(‘Sorry’ 페이지)가 났으므로 반드시 영상 단위로 묶고,
   429 후엔 30분 쿨다운(`settings.mt_cooldown_until`, 파이프라인과 앱 공용). 앱은 자막 요청 시 빠진 줄을 즉석에서 번역해 저장한다.

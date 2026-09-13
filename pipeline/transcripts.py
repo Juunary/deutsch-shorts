@@ -42,18 +42,67 @@ def _clean(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Fetching
 # ---------------------------------------------------------------------------
+INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+INNERTUBE_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+
+
+def lean_fetcher(http_client: Any, proxy_config: Any = None) -> Any:
+    """youtube-transcript-api's TranscriptListFetcher minus the watch-page request.
+
+    The library fetches the HTML watch page (about 1 MB, the page that serves YouTube's recaptcha "sorry" wall)
+    only to read INNERTUBE_API_KEY, then calls the innertube player API, then the caption file: three requests
+    per video. The player API answers without a key, so this fetcher calls it directly: two requests per video
+    and none to the recaptcha-prone page. Anything unexpected falls back to the library's own path.
+    """
+    from youtube_transcript_api._errors import IpBlocked
+    from youtube_transcript_api._settings import INNERTUBE_CONTEXT
+    from youtube_transcript_api._transcripts import TranscriptListFetcher
+
+    class LeanTranscriptListFetcher(TranscriptListFetcher):
+        def _fetch_captions_json(self, video_id: str, try_number: int = 0) -> dict:
+            try:
+                response = self._http_client.post(INNERTUBE_PLAYER_URL, json={"context": INNERTUBE_CONTEXT, "videoId": video_id},
+                                                  headers={"User-Agent": INNERTUBE_USER_AGENT})
+            except Exception:  # noqa: BLE001 - network hiccup: let the library try its own way
+                return super()._fetch_captions_json(video_id, try_number)
+            if response.status_code == 429:
+                raise IpBlocked(video_id)
+            data = None
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = None
+            if not isinstance(data, dict) or "playabilityStatus" not in data:
+                return super()._fetch_captions_json(video_id, try_number)
+            return self._extract_captions_json(data, video_id)
+
+    return LeanTranscriptListFetcher(http_client, proxy_config)
+
+
+def make_api(http_client: Any = None) -> Any:
+    """YouTubeTranscriptApi wired to the lean fetcher (stock fetcher if the library's internals changed)."""
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    api = YouTubeTranscriptApi(http_client=http_client)
+    fetcher = getattr(api, "_fetcher", None)
+    client = getattr(fetcher, "_http_client", None)
+    if client is not None:
+        api._fetcher = lean_fetcher(client, getattr(fetcher, "_proxy_config", None))
+    return api
+
+
 def fetch_de(video_id: str, api: Any = None) -> dict[str, Any]:
     """Fetch the German transcript (manual preferred, else auto-generated).
 
     Returns {"status": ok|none|disabled|unavailable|blocked|error, "lang", "is_generated", "snippets", "error"}.
     """
-    from youtube_transcript_api import YouTubeTranscriptApi
     from youtube_transcript_api._errors import (
         AgeRestricted, CouldNotRetrieveTranscript, InvalidVideoId, NoTranscriptFound, PoTokenRequired,
         RequestBlocked, TranscriptsDisabled, VideoUnavailable, VideoUnplayable,
     )
 
-    api = api or YouTubeTranscriptApi()
+    api = api or make_api()
     try:
         tl = api.list(video_id)
     except (RequestBlocked, PoTokenRequired) as e:  # IpBlocked subclasses RequestBlocked

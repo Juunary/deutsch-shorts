@@ -191,3 +191,45 @@ def test_german_ratio_and_mixed_status(seeded_db):
     assert s["mixed"] == 1
     assert seeded_db.execute("SELECT transcript_status FROM videos WHERE id='vid00000002'").fetchone()[0] == "mixed"
     assert seeded_db.execute("SELECT transcript_status FROM videos WHERE id='vid00000001'").fetchone()[0] == "ok"
+
+
+def test_lean_fetcher_uses_player_api_and_falls_back():
+    xml = '<transcript><text start="0" dur="1.5">Hallo Welt</text><text start="3" dur="1">wie geht es</text></transcript>'
+    payload = {"playabilityStatus": {"status": "OK"}, "captions": {"playerCaptionsTracklistRenderer": {"captionTracks": [
+        {"baseUrl": "https://www.youtube.com/api/timedtext?v=x&fmt=srv3", "languageCode": "de", "kind": "asr",
+         "name": {"runs": [{"text": "German (auto-generated)"}]}, "isTranslatable": True}], "translationLanguages": []}}}
+
+    class Resp:
+        def __init__(self, status=200, payload=None, text=""):
+            self.status_code, self._payload, self.text = status, payload, text
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    class Session:
+        def __init__(self, keyless):
+            self.keyless, self.calls, self.headers, self.cookies = keyless, [], {}, None
+
+        def post(self, url, json=None, headers=None):
+            self.calls.append(("post", url.split("?")[0]))
+            return self.keyless if "key=" not in url else Resp(200, payload)
+
+        def get(self, url):
+            self.calls.append(("get", url.split("?")[0]))
+            return Resp(200, text='<html>"INNERTUBE_API_KEY":"k"</html>' if "watch" in url else xml)
+
+    s = Session(Resp(200, payload))
+    out = T.fetch_de("x", api=T.make_api(http_client=s))
+    assert out["status"] == "ok" and out["lang"] == "de" and out["is_generated"]
+    assert [sn["text"] for sn in out["snippets"]] == ["Hallo Welt", "wie geht es"]
+    assert s.calls == [("post", T.INNERTUBE_PLAYER_URL), ("get", "https://www.youtube.com/api/timedtext")]   # no watch page
+
+    s = Session(Resp(200, {"unexpected": True}))            # unusable keyless answer -> the library's own path
+    assert T.fetch_de("x", api=T.make_api(http_client=s))["status"] == "ok"
+    assert s.calls[:3] == [("post", T.INNERTUBE_PLAYER_URL), ("get", "https://www.youtube.com/watch"), ("post", T.INNERTUBE_PLAYER_URL)]
+
+    s = Session(Resp(429))
+    assert T.fetch_de("x", api=T.make_api(http_client=s))["status"] == "blocked"

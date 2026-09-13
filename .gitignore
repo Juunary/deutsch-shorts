@@ -17,3 +17,6 @@ ml/*.log
 .DS_Store
 Thumbs.db
 .claude/launch.json
+
+# server-side working notes (unredacted copies)
+ml/*.local.md

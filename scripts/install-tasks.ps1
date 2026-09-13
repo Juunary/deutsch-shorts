@@ -22,11 +22,13 @@ if ($useService) {
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 }
 $hourly = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Hours 1)
+$hourly30 = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(30) -RepetitionInterval (New-TimeSpan -Hours 1)
 $tasks = @(
     @{ Name = 'DeutschShorts-Server';   Script = 'run-server.ps1';   Args = '';                                 Trigger = $startTrigger },
     @{ Name = 'DeutschShorts-LLM';      Script = 'llama-server.ps1'; Args = '';                                 Trigger = $startTrigger },
     @{ Name = 'DeutschShorts-Pipeline'; Script = 'run-pipeline.ps1'; Args = '-Stage all -ExtraArgs "--limit 8"'; Trigger = (New-ScheduledTaskTrigger -Daily -At 4:30AM) },
-    @{ Name = 'DeutschShorts-Pull';     Script = 'run-pipeline.ps1'; Args = '-Stage pull';                      Trigger = $hourly }
+    @{ Name = 'DeutschShorts-Pull';     Script = 'run-pipeline.ps1'; Args = '-Stage pull';                      Trigger = $hourly },
+    @{ Name = 'DeutschShorts-Transcripts'; Script = 'run-pipeline.ps1'; Args = '-Stage transcripts -ExtraArgs "--limit 6"'; Trigger = $hourly30 }
 )
 
 foreach ($t in $tasks) {
